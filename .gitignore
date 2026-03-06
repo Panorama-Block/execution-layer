@@ -10,7 +10,7 @@ backend/node_modules/
 backend/dist/
 
 # Environment
-.env
+.env.env.example
 
 # OS
 .DS_Store

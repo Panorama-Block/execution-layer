@@ -126,4 +126,3 @@ Full documentation is available in [`docs/`](docs/), organized into:
 - **09-strategy-agent/** - Strategy agent documentation
 - **10-onboarding/** - Onboarding specs
 - **diagrams/** - Mermaid diagram source files
-# execution-layer

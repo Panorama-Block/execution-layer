@@ -1,0 +1,44 @@
+graph TB
+    subgraph "Frontend"
+        TG[Telegram Bot Gateway<br/>Fastify + grammy]
+        MA[MiniApp<br/>Next.js 15]
+    end
+
+    subgraph "Agent Layer"
+        AGENTS[Zico Agents<br/>Python + LangGraph<br/>FastAPI]
+    end
+
+    subgraph "Backend Microservices"
+        AUTH[auth-service<br/>:3001<br/>JWT + ThirdWeb SIWE]
+        SWAP[liquid-swap-service<br/>:3002<br/>Uniswap + Thirdweb]
+        BRIDGE[bridge-service<br/>:3003<br/>LayerZero + Layerswap]
+        LIDO[lido-service<br/>:3004<br/>Lido staking]
+        DB[database gateway<br/>:3005<br/>Prisma + PostgreSQL]
+        LEND[lending-service<br/>:3006<br/>Benqi lending]
+        DCA[dca-service<br/>:3007<br/>ERC-4337 AA]
+        EXEC[execution-service<br/>:3010 NEW<br/>Aerodrome execution]
+    end
+
+    subgraph "Infrastructure"
+        PG[(PostgreSQL)]
+        REDIS[(Redis Cache)]
+    end
+
+    subgraph "External Services"
+        UNI_API[Uniswap Trading API]
+        TW_API[Thirdweb Bridge API]
+        LS_API[Layerswap API]
+    end
+
+    TG --> AGENTS
+    MA --> AUTH & SWAP & LIDO & LEND & DCA & EXEC & DB
+    AGENTS --> SWAP & LIDO & LEND & DCA & EXEC & DB
+
+    AUTH --> PG
+    DB --> PG
+    DCA --> REDIS
+
+    SWAP --> UNI_API & TW_API
+    BRIDGE --> LS_API
+
+    style EXEC fill:#f96,stroke:#333

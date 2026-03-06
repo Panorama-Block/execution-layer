@@ -1,0 +1,57 @@
+graph TB
+    subgraph "Shared Contracts"
+        PE[PanoramaExecutor.sol<br/>Chain-agnostic core]
+        IPA[IProtocolAdapter.sol<br/>Generic interface]
+        STL[SafeTransferLib.sol<br/>Utility library]
+    end
+
+    subgraph "Base (Chain ID: 8453)"
+        PE_BASE[PanoramaExecutor<br/>0x...]
+        AA_BASE[AerodromeAdapter]
+        MW_BASE[MoonwellAdapter<br/>Future]
+        AV_BASE[AvantisAdapter<br/>Future]
+
+        AERO[Aerodrome Finance]
+        MOONWELL[Moonwell]
+        AVANTIS[Avantis]
+    end
+
+    subgraph "Avalanche (Chain ID: 43114) - Future"
+        PE_AVAX[PanoramaExecutor<br/>Same code, new deploy]
+        TJ_AVAX[TraderJoeAdapter]
+        BQ_AVAX[BenqiAdapter]
+
+        TRADERJOE[Trader Joe]
+        BENQI[Benqi]
+    end
+
+    subgraph "Arbitrum (Chain ID: 42161) - Future"
+        PE_ARB[PanoramaExecutor<br/>Same code, new deploy]
+        CAM_ARB[CamelotAdapter]
+
+        CAMELOT[Camelot]
+    end
+
+    subgraph "Optimism (Chain ID: 10) - Future"
+        PE_OP[PanoramaExecutor<br/>Same code, new deploy]
+        VEL_OP[VelodromeAdapter]
+
+        VELODROME[Velodrome]
+    end
+
+    PE --> PE_BASE & PE_AVAX & PE_ARB & PE_OP
+    IPA --> AA_BASE & MW_BASE & AV_BASE & TJ_AVAX & BQ_AVAX & CAM_ARB & VEL_OP
+
+    AA_BASE --> AERO
+    MW_BASE -.-> MOONWELL
+    AV_BASE -.-> AVANTIS
+    TJ_AVAX -.-> TRADERJOE
+    BQ_AVAX -.-> BENQI
+    CAM_ARB -.-> CAMELOT
+    VEL_OP -.-> VELODROME
+
+    style PE_BASE fill:#4CAF50,stroke:#333
+    style AA_BASE fill:#4CAF50,stroke:#333
+    style PE_AVAX fill:#ccc,stroke:#999
+    style PE_ARB fill:#ccc,stroke:#999
+    style PE_OP fill:#ccc,stroke:#999

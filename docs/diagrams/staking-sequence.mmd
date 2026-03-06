@@ -1,0 +1,33 @@
+sequenceDiagram
+    actor User
+    participant TG as Telegram Bot
+    participant Agent as Zico Agent<br/>(staking_agent)
+    participant Backend as Lido Service<br/>(:3004)
+    participant Miniapp as MiniApp Frontend
+    participant Wallet as Thirdweb Wallet
+    participant Lido as Lido Protocol<br/>(Ethereum)
+
+    User->>TG: "I want to stake 1 ETH"
+    TG->>Agent: Forward message
+    Agent->>Agent: Semantic routing -> STAKING intent
+    Agent->>Agent: Collect staking parameters (amount=1, action=stake)
+    Agent-->>TG: staking_intent_ready + metadata
+    TG-->>User: "Stake 1 ETH via Lido for ~3.5% APY" + [Review] button
+
+    User->>Miniapp: Opens staking page
+    Miniapp->>Backend: GET /staking/apy
+    Backend-->>Miniapp: APY: 3.5%
+
+    User->>Miniapp: Confirms stake
+    Miniapp->>Backend: POST /staking/prepare {amount: 1 ETH}
+    Backend-->>Miniapp: PreparedTx {to: lido, data: submit(), value: 1 ETH}
+
+    Miniapp->>Wallet: Sign transaction
+    Wallet->>Lido: submit{value: 1 ETH}()
+    Lido-->>Wallet: ~0.95 stETH minted to user
+    Wallet-->>Miniapp: tx receipt
+
+    Miniapp->>Miniapp: Track via Gateway API
+    Miniapp-->>User: "Staked! Receiving ~0.95 stETH"
+
+    Note over User,Lido: Unstake flow: queue (7 days) or instant (with fee)

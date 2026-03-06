@@ -1,0 +1,38 @@
+sequenceDiagram
+    actor User
+    participant TG as Telegram Bot
+    participant Agent as Zico Agent<br/>(execution_agent)
+    participant Backend as Execution Service<br/>(:3010)
+    participant Miniapp as MiniApp Frontend
+    participant Wallet as Thirdweb Wallet
+    participant Executor as PanoramaExecutor
+    participant Adapter as AerodromeAdapter
+    participant Aero as Aerodrome Router2
+
+    User->>TG: "Swap 0.1 ETH to USDC on Aerodrome"
+    TG->>Agent: Forward message + user_id + conversation_id
+    Agent->>Agent: Semantic routing -> EXECUTION intent (0.85 confidence)
+    Agent->>Agent: update_execution_intent(operation=swap, tokenA=ETH, tokenB=USDC, amount=0.1)
+    Agent-->>TG: execution_intent_ready + metadata
+    TG-->>User: "Ready to swap 0.1 ETH -> USDC on Aerodrome" + [Review] button
+
+    User->>Miniapp: Opens MiniApp via [Review] button
+    Miniapp->>Backend: POST /execution/quote {tokenIn: ETH, tokenOut: USDC, amountIn: 0.1}
+    Backend->>Aero: router.getAmountsOut(0.1 ETH, [WETH->USDC])
+    Aero-->>Backend: [0.1 ETH, ~250 USDC]
+    Backend-->>Miniapp: Quote: 250 USDC (slippage: 0.5%)
+
+    User->>Miniapp: Confirms swap
+    Miniapp->>Backend: POST /execution/prepare-swap {tokenIn: ETH, tokenOut: USDC, amountIn: 0.1, slippageBps: 50}
+    Backend-->>Miniapp: PreparedTx[] [{to: executor, data: 0x..., value: 0.1 ETH}]
+
+    Miniapp->>Wallet: Sign transaction
+    Wallet->>Executor: executeSwap{value: 0.1 ETH}(aerodrome, ETH, USDC, 0.1, 248.75, ...)
+    Executor->>Adapter: swap{value: 0.1 ETH}(ETH, USDC, 0.1, 248.75, user, ...)
+    Adapter->>Aero: swapExactETHForTokens(248.75, [WETH->USDC], user, deadline)
+    Aero-->>User: 250.12 USDC transferred
+    Adapter-->>Executor: amountOut = 250.12
+    Executor-->>Wallet: tx receipt
+
+    Miniapp->>Miniapp: Track via Gateway transaction API
+    Miniapp-->>User: "Swap complete! Received 250.12 USDC"

@@ -1,0 +1,74 @@
+graph TB
+    subgraph "User Interface Layer"
+        TG[Telegram Bot Gateway<br/>Fastify + grammy]
+        MA[MiniApp Frontend<br/>Next.js 15 + React 19]
+        WEB[Web Interface]
+    end
+
+    subgraph "Agent Layer"
+        SR[Semantic Router<br/>Embedding-based Intent Classification]
+        SA[Swap Agent]
+        LA[Lending Agent]
+        STA[Staking Agent]
+        DCA[DCA Agent]
+        EA[Execution Agent<br/>NEW]
+        STRA[Strategy Agent<br/>NEW]
+        PA[Portfolio Agent]
+        CDA[Crypto Data Agent]
+    end
+
+    subgraph "Backend Services Layer"
+        AUTH[Auth Service<br/>:3001]
+        SWAP[Liquid Swap Service<br/>:3002]
+        BRIDGE[Bridge Service<br/>:3003]
+        LIDO[Lido Service<br/>:3004]
+        LEND[Lending Service<br/>:3006]
+        DCAS[DCA Service<br/>:3007]
+        EXEC[Execution Service<br/>:3010 NEW]
+        DB[Database Gateway<br/>Prisma + PostgreSQL]
+    end
+
+    subgraph "Execution Layer (NEW)"
+        PE[PanoramaExecutor.sol]
+        AR[Adapter Registry]
+        AA[AerodromeAdapter.sol]
+    end
+
+    subgraph "DeFi Protocols"
+        AERO[Aerodrome Finance<br/>Base]
+        MOON[Moonwell<br/>Base]
+        AVAN[Avantis<br/>Base]
+        BENQI[Benqi<br/>Avalanche]
+        LIDOP[Lido<br/>Ethereum]
+        UNI[Uniswap<br/>Multi-chain]
+    end
+
+    USER((User)) --> TG
+    USER --> MA
+    USER --> WEB
+
+    TG --> SR
+    MA --> SR
+    SR --> SA & LA & STA & DCA & EA & STRA & PA & CDA
+
+    SA --> SWAP
+    LA --> LEND
+    STA --> LIDO
+    DCA --> DCAS
+    EA --> EXEC
+    PA --> DB
+
+    EXEC --> PE
+    PE --> AR
+    AR --> AA
+
+    AA --> AERO
+    LEND --> BENQI
+    LIDO --> LIDOP
+    SWAP --> UNI
+
+    style PE fill:#f96,stroke:#333
+    style AA fill:#f96,stroke:#333
+    style EXEC fill:#f96,stroke:#333
+    style EA fill:#f96,stroke:#333
+    style STRA fill:#f96,stroke:#333

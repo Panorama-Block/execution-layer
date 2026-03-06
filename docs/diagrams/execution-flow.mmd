@@ -1,0 +1,39 @@
+graph LR
+    subgraph "PanoramaExecutor"
+        EX[executeSwap / executeAddLiquidity / ...]
+        REG[Adapter Registry<br/>mapping bytes32 => address]
+    end
+
+    subgraph "Protocol Adapters"
+        AA[AerodromeAdapter<br/>Base]
+        VA[VelodromeAdapter<br/>Optimism - Future]
+        TJA[TraderJoeAdapter<br/>Avalanche - Future]
+        MWA[MoonwellAdapter<br/>Base - Future]
+    end
+
+    subgraph "DeFi Protocols"
+        AR2[Aerodrome Router2<br/>0xcF77...E43]
+        AF[Aerodrome Factory<br/>0x420D...0Da]
+        AG[Aerodrome Gauges<br/>via Voter 0x1661...A5]
+        VR[Velodrome Router]
+        TJR[Trader Joe Router]
+        MWC[Moonwell Comptroller]
+    end
+
+    USER((User)) -->|"1. approve tokens"| EX
+    USER -->|"2. call executeSwap"| EX
+    EX -->|"3. lookup adapter"| REG
+    REG -->|"4. delegate call"| AA
+    AA -->|"5. protocol call"| AR2
+    AR2 -->|"6. execute swap"| POOL((Pool))
+    POOL -->|"7. tokens out"| USER
+
+    REG -.->|future| VA & TJA & MWA
+    VA -.-> VR
+    TJA -.-> TJR
+    MWA -.-> MWC
+
+    style AA fill:#4CAF50,stroke:#333
+    style VA fill:#ccc,stroke:#999
+    style TJA fill:#ccc,stroke:#999
+    style MWA fill:#ccc,stroke:#999

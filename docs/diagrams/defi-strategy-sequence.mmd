@@ -1,0 +1,49 @@
+sequenceDiagram
+    actor User
+    participant Agent as Strategy Agent
+    participant Backend as Backend Services
+    participant Executor as PanoramaExecutor
+    participant Aero as Aerodrome<br/>(Base)
+    participant Moon as Moonwell<br/>(Base)
+    participant Avan as Avantis<br/>(Base)
+
+    User->>Agent: "I want to earn yield on $5000 with moderate risk"
+
+    Note over Agent: Strategy Agent analyzes:<br/>- Risk profile: moderate<br/>- Amount: $5000<br/>- Available protocols on Base
+
+    Agent->>Agent: Generate strategy proposal
+
+    Agent-->>User: Strategy Proposal:<br/>1. Swap 50% to WETH ($2500)<br/>2. Supply USDC as collateral on Moonwell<br/>3. Add ETH/USDC liquidity on Aerodrome<br/>4. Stake LP in gauge for AERO rewards
+
+    User->>Agent: "Approve strategy"
+
+    Note over Backend,Avan: Multi-step execution begins
+
+    rect rgb(230, 245, 255)
+        Note over Backend,Aero: Step 1: Swap USDC -> WETH
+        Backend->>Executor: executeSwap(aerodrome, USDC, WETH, 2500, ...)
+        Executor->>Aero: Router2.swapExactTokensForTokens(...)
+        Aero-->>User: ~0.83 WETH received
+    end
+
+    rect rgb(255, 245, 230)
+        Note over Backend,Moon: Step 2: Supply USDC collateral
+        Backend->>Moon: supply(USDC, 2500)
+        Moon-->>User: mUSDC minted
+    end
+
+    rect rgb(230, 255, 230)
+        Note over Backend,Aero: Step 3: Add ETH/USDC Liquidity
+        Backend->>Executor: executeAddLiquidity(aerodrome, WETH, USDC, ...)
+        Executor->>Aero: Router2.addLiquidity(...)
+        Aero-->>User: LP tokens received
+    end
+
+    rect rgb(255, 230, 255)
+        Note over Backend,Aero: Step 4: Stake LP in Gauge
+        Backend->>Executor: executeStake(aerodrome, lpToken, amount, gauge)
+        Executor->>Aero: Gauge.deposit(amount, user)
+        Aero-->>User: Earning AERO rewards
+    end
+
+    Agent-->>User: Strategy executed!<br/>- $2500 USDC collateral on Moonwell<br/>- ETH/USDC LP staked on Aerodrome<br/>- Earning: swap fees + AERO rewards

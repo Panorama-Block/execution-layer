@@ -1,0 +1,43 @@
+stateDiagram-v2
+    [*] --> created : User initiates action
+
+    created --> submitted : Frontend sends tx to chain
+    created --> failed : Preparation error
+
+    submitted --> pending : Tx broadcast to network
+    submitted --> failed : Signing rejected
+
+    pending --> confirmed : Block confirmation received
+    pending --> failed : Tx reverted on-chain
+
+    confirmed --> [*]
+    failed --> [*]
+
+    state created {
+        [*] --> intent_collected
+        intent_collected --> quote_fetched
+        quote_fetched --> tx_prepared
+        tx_prepared --> awaiting_signature
+    }
+
+    state confirmed {
+        [*] --> receipt_parsed
+        receipt_parsed --> amounts_extracted
+        amounts_extracted --> gateway_updated
+    }
+
+    note right of created
+        Gateway transaction API creates record:
+        - action (swap/supply/stake)
+        - fromAsset, toAsset
+        - fromAmount
+        - walletId, chainId
+    end note
+
+    note right of confirmed
+        Receipt processing:
+        - Extract gas fees
+        - Extract actual output amount
+        - Calculate exchange rate
+        - Update gateway record
+    end note

@@ -1,0 +1,47 @@
+sequenceDiagram
+    actor User
+    participant Bot as Telegram Bot Gateway<br/>(:webhook)
+    participant Identity as Identity Service
+    participant Agents as Zico Agents API<br/>(FastAPI)
+    participant Router as Semantic Router
+    participant ExecAgent as Execution Agent
+    participant Miniapp as MiniApp Frontend
+    participant ExecSvc as Execution Service<br/>(:3010)
+    participant Chain as Base Chain
+
+    User->>Bot: "Swap 0.5 ETH to USDC on Aerodrome"
+    Bot->>Identity: Resolve telegram_user_id -> internal user_id
+    Identity-->>Bot: user_id = "abc123"
+
+    Bot->>Agents: POST /chat {message, user_id, conversation_id, metadata}
+    Agents->>Router: Classify intent via embeddings
+
+    Note over Router: Cosine similarity:<br/>EXECUTION = 0.91 (highest)<br/>SWAP = 0.72<br/>Threshold: 0.78
+
+    Router-->>ExecAgent: Route to execution_agent
+
+    ExecAgent->>ExecAgent: update_execution_intent(<br/>operation=swap,<br/>token_a=ETH,<br/>token_b=USDC,<br/>amount=0.5,<br/>protocol=aerodrome,<br/>chain=base<br/>)
+
+    ExecAgent->>ExecAgent: Intent complete -> store metadata
+
+    ExecAgent-->>Agents: {event: "execution_intent_ready", metadata: {...}}
+    Agents-->>Bot: Response + action metadata
+
+    Bot->>Bot: Detect "execution_intent_ready" event
+    Bot->>Bot: Build inline keyboard with WebApp button
+
+    Bot-->>User: "Ready to swap 0.5 ETH -> USDC via Aerodrome on Base"<br/>[Review & Execute] button
+
+    User->>Miniapp: Tap [Review & Execute]<br/>URL: /execution?conversation_id=...&tma=1
+
+    Miniapp->>ExecSvc: POST /execution/quote
+    ExecSvc-->>Miniapp: Quote: ~1250 USDC
+
+    User->>Miniapp: Confirm swap
+    Miniapp->>ExecSvc: POST /execution/prepare-swap
+    ExecSvc-->>Miniapp: PreparedTx[]
+
+    Miniapp->>Chain: Sign & broadcast via Thirdweb
+    Chain-->>Miniapp: Transaction confirmed
+
+    Miniapp-->>User: "Swap complete! 1251.34 USDC received"

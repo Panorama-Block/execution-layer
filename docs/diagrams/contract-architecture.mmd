@@ -1,0 +1,71 @@
+classDiagram
+    class PanoramaExecutor {
+        +address owner
+        +mapping adapters
+        -bool _locked
+        +executeSwap(protocolId, tokenIn, tokenOut, amountIn, amountOutMin, extraData, deadline) uint256
+        +executeAddLiquidity(protocolId, tokenA, tokenB, stable, amountADesired, amountBDesired, amountAMin, amountBMin, extraData, deadline) uint256
+        +executeRemoveLiquidity(protocolId, tokenA, tokenB, stable, liquidity, amountAMin, amountBMin, extraData, deadline) uint256 uint256
+        +executeStake(protocolId, lpToken, amount, extraData)
+        +executeUnstake(protocolId, lpToken, amount, extraData)
+        +registerAdapter(protocolId, adapter)
+        +removeAdapter(protocolId)
+        +transferOwnership(newOwner)
+        +emergencyWithdraw()
+        +emergencyWithdrawERC20(token)
+    }
+
+    class IProtocolAdapter {
+        <<interface>>
+        +swap(tokenIn, tokenOut, amountIn, amountOutMin, recipient, extraData) uint256
+        +addLiquidity(tokenA, tokenB, stable, amountADesired, amountBDesired, amountAMin, amountBMin, recipient, extraData) uint256
+        +removeLiquidity(tokenA, tokenB, stable, liquidity, amountAMin, amountBMin, recipient, extraData) uint256 uint256
+        +stake(lpToken, amount, extraData) bool
+        +unstake(lpToken, amount, extraData) bool
+    }
+
+    class AerodromeAdapter {
+        +IAerodromeRouter router
+        +IAerodromeVoter voter
+        +address factory
+        +address weth
+        +address executor
+        +swap(...)
+        +addLiquidity(...)
+        +removeLiquidity(...)
+        +stake(...)
+        +unstake(...)
+    }
+
+    class SafeTransferLib {
+        <<library>>
+        +safeTransfer(token, to, amount)
+        +safeTransferFrom(token, from, to, amount)
+        +safeApprove(token, spender, amount)
+        +safeTransferETH(to, amount)
+    }
+
+    class IAerodromeRouter {
+        <<interface>>
+        +swapExactTokensForTokens(...)
+        +swapExactETHForTokens(...)
+        +addLiquidity(...)
+        +removeLiquidity(...)
+        +getAmountsOut(...)
+    }
+
+    class IAerodromeGauge {
+        <<interface>>
+        +deposit(amount)
+        +withdraw(amount)
+        +getReward(account)
+        +earned(account)
+        +balanceOf(account)
+    }
+
+    PanoramaExecutor --> IProtocolAdapter : delegates to
+    AerodromeAdapter ..|> IProtocolAdapter : implements
+    AerodromeAdapter --> IAerodromeRouter : calls
+    AerodromeAdapter --> IAerodromeGauge : calls
+    PanoramaExecutor --> SafeTransferLib : uses
+    AerodromeAdapter --> SafeTransferLib : uses

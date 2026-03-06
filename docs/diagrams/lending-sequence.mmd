@@ -1,0 +1,39 @@
+sequenceDiagram
+    actor User
+    participant TG as Telegram Bot
+    participant Agent as Zico Agent<br/>(lending_agent)
+    participant Backend as Lending Service<br/>(:3006)
+    participant Miniapp as MiniApp Frontend
+    participant Wallet as Thirdweb Wallet
+    participant VL as ValidatedLending.sol
+    participant Benqi as Benqi Protocol<br/>(Avalanche)
+
+    User->>TG: "Supply 100 USDC on Benqi"
+    TG->>Agent: Forward message
+    Agent->>Agent: Semantic routing -> LENDING intent
+    Agent->>Agent: Collect lending parameters (action=supply, token=USDC, amount=100)
+    Agent-->>TG: lending_intent_ready + metadata
+    TG-->>User: "Supply 100 USDC on Benqi (APY: 4.2%)" + [Review] button
+
+    User->>Miniapp: Opens lending page
+    Miniapp->>Backend: GET /lending/markets
+    Backend-->>Miniapp: Markets data (rates, liquidity, health factors)
+
+    User->>Miniapp: Confirms supply
+
+    Note over Miniapp,VL: Two-step flow: approve + supply
+
+    Miniapp->>Wallet: 1. Approve USDC spending
+    Wallet->>Miniapp: approval tx receipt
+
+    Miniapp->>Backend: POST /lending/prepare-supply {token: USDC, amount: 100}
+    Backend-->>Miniapp: PreparedTx {to: ValidatedLending, data: validateAndSupplyERC20(...)}
+
+    Miniapp->>Wallet: 2. Sign supply transaction
+    Wallet->>VL: validateAndSupplyERC20(qUSDC, 100)
+    VL->>VL: Pay validation tax
+    VL->>Benqi: qToken.mint(100 USDC)
+    Benqi-->>User: qUSDC minted (interest-bearing)
+
+    Miniapp->>Miniapp: Track via Gateway API
+    Miniapp-->>User: "Supplied 100 USDC. Earning 4.2% APY"

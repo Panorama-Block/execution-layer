@@ -1,0 +1,27 @@
+graph TD
+    START((User Message)) --> ENTRY[entry_node<br/>Zero LLM calls<br/>- Conversation windowing<br/>- DeFi state lookup<br/>- Message building]
+
+    ENTRY --> SEM[semantic_router_node<br/>Embedding-based classification<br/>Cosine similarity vs exemplars]
+
+    SEM -->|"confidence >= 0.78"| ROUTE{Route to Agent}
+    SEM -->|"confidence < 0.78<br/>but >= 0.50"| LLM[llm_router_node<br/>LLM confirmation]
+    SEM -->|"confidence < 0.50"| GEN[default_agent]
+
+    LLM --> ROUTE
+
+    ROUTE -->|SWAP| SWAP[swap_agent<br/>Token swap intent collection]
+    ROUTE -->|LENDING| LEND[lending_agent<br/>Supply/borrow operations]
+    ROUTE -->|STAKING| STAKE[staking_agent<br/>Lido staking]
+    ROUTE -->|DCA| DCA[dca_agent<br/>Recurring buy strategies]
+    ROUTE -->|EXECUTION| EXEC[execution_agent NEW<br/>Aerodrome on-chain ops]
+    ROUTE -->|MARKET_DATA| CRYPTO[crypto_data_agent<br/>Price, TVL, market data]
+    ROUTE -->|PORTFOLIO| PORT[portfolio_advisor<br/>Portfolio analysis]
+    ROUTE -->|SEARCH| SEARCH[search_agent<br/>Web search]
+    ROUTE -->|GENERAL| GEN
+
+    SWAP & LEND & STAKE & DCA & EXEC & CRYPTO & PORT & SEARCH & GEN --> FMT[formatter_node<br/>Mode-aware output formatting<br/>Fast mode vs Reasoning mode]
+
+    FMT --> END((Response to User))
+
+    style EXEC fill:#f96,stroke:#333
+    style SEM fill:#4CAF50,stroke:#333

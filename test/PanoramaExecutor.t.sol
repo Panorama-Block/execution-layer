@@ -8,6 +8,7 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockRouter} from "./mocks/MockRouter.sol";
 
 contract PanoramaExecutorTest is Test {
+    receive() external payable {}
     PanoramaExecutor public executor;
     AerodromeAdapter public adapter;
     MockRouter public mockRouter;

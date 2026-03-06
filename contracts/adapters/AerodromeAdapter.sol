@@ -117,19 +117,14 @@ contract AerodromeAdapter is IProtocolAdapter {
         _approveRouter(tokenA, amountADesired);
         _approveRouter(tokenB, amountBDesired);
 
-        uint256 deadline = block.timestamp;
-        uint256 amountA;
-        uint256 amountB;
-
-        (amountA, amountB, liquidity) = router.addLiquidity(
-            tokenA, tokenB, stable, amountADesired, amountBDesired, amountAMin, amountBMin, recipient, deadline
+        (uint256 amountA, uint256 amountB, uint256 lp) = router.addLiquidity(
+            tokenA, tokenB, stable, amountADesired, amountBDesired, amountAMin, amountBMin, recipient, block.timestamp
         );
+        liquidity = lp;
 
-        // Refund unused tokens to recipient
-        uint256 refundA = amountADesired - amountA;
-        uint256 refundB = amountBDesired - amountB;
-        if (refundA > 0) tokenA.safeTransfer(recipient, refundA);
-        if (refundB > 0) tokenB.safeTransfer(recipient, refundB);
+        // Refund unused tokens
+        _refundIfExcess(tokenA, amountADesired, amountA, recipient);
+        _refundIfExcess(tokenB, amountBDesired, amountB, recipient);
     }
 
     /**
@@ -192,6 +187,12 @@ contract AerodromeAdapter is IProtocolAdapter {
     function _approve(address token, address spender, uint256 amount) internal {
         token.safeApprove(spender, 0);
         token.safeApprove(spender, amount);
+    }
+
+    function _refundIfExcess(address token, uint256 desired, uint256 used, address to) internal {
+        if (desired > used) {
+            token.safeTransfer(to, desired - used);
+        }
     }
 
     function _resolveGauge(address lpToken, bytes calldata extraData) internal view returns (address gauge) {

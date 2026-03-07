@@ -76,9 +76,11 @@ The backend **never holds private keys**. It only prepares unsigned calldata.
 |---|---|
 | **PanoramaExecutor** | [`0x79D671250f75631ca199d0Fa22b0071052214172`](https://basescan.org/address/0x79D671250f75631ca199d0Fa22b0071052214172) |
 | **AerodromeAdapter** | [`0xf919A01510591f38407AA4BBE5711646DB6819e3`](https://basescan.org/address/0xf919A01510591f38407AA4BBE5711646DB6819e3) |
+| **DCAVault** | [`0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1`](https://basescan.org/address/0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1) |
 
-- **PanoramaExecutor** is the single entry point for all services. Deploy once, use forever.
-- **AerodromeAdapter** handles swap, liquidity, and staking on Aerodrome Finance. Already deployed and registered — **no need to redeploy for swap or liquid staking modules**.
+- **PanoramaExecutor** is the single entry point for swap, liquidity, and staking operations. Deploy once, use forever.
+- **AerodromeAdapter** handles swap, liquidity, and staking on Aerodrome Finance. Already deployed and registered.
+- **DCAVault** stores user DCA orders and deposits. A trusted keeper calls `execute(orderId)` at each interval to trigger swaps via PanoramaExecutor.
 
 ### When do I need a new adapter?
 
@@ -86,7 +88,7 @@ The backend **never holds private keys**. It only prepares unsigned calldata.
 |---|---|---|
 | Swap (Aerodrome) | **No** | `AerodromeAdapter.swap()` already exists |
 | Liquid Staking (Aerodrome) | **No** | `AerodromeAdapter.stake()/unstake()` already exists |
-| DCA (Aerodrome) | Maybe | May need a `DCAScheduler` contract for time-based orders |
+| DCA (Aerodrome) | **No** | `DCAVault` routes through existing `PanoramaExecutor` |
 | Lending (Aave/Compound) | **Yes** | New protocol = new adapter (e.g., `AaveLendingAdapter`) |
 | Swap (other DEX) | **Yes** | New protocol = new adapter (e.g., `UniswapAdapter`) |
 
@@ -104,11 +106,12 @@ executor.registerAdapter(keccak256("aave"), aaveLendingAdapterAddress);
 execution-layer/
 ├── contracts/                    # Solidity smart contracts
 │   ├── core/
-│   │   └── PanoramaExecutor.sol  # Central router (deployed)
+│   │   ├── PanoramaExecutor.sol  # Central router (deployed)
+│   │   └── DCAVault.sol          # DCA order vault (deployed)
 │   ├── adapters/
 │   │   └── AerodromeAdapter.sol  # Aerodrome integration (deployed)
 │   ├── interfaces/
-│   │   ├── IProtocolAdapter.sol  # Interface all adapters must implement
+│   │   ├── IProtocolAdapter.sol
 │   │   ├── IAerodromeRouter.sol
 │   │   ├── IAerodromeGauge.sol
 │   │   └── IERC20.sol
@@ -119,43 +122,57 @@ execution-layer/
 │   └── src/
 │       ├── index.ts              # Express server entry point
 │       ├── config/
-│       │   ├── chains.ts         # Chain configs (RPC, contract addresses)
+│       │   ├── chains.ts         # Chain configs (lazy env loading)
 │       │   └── protocols.ts      # Protocol configs (Aerodrome addresses, tokens)
 │       ├── providers/
-│       │   ├── chain.provider.ts # ethers.js provider/contract factory
+│       │   ├── chain.provider.ts
 │       │   ├── aerodrome.provider.ts
 │       │   └── gauge.provider.ts
 │       ├── types/
 │       │   └── transaction.ts    # PreparedTransaction, TransactionBundle
 │       ├── utils/
-│       │   ├── abi.ts            # Contract ABIs
-│       │   └── encoding.ts       # Helpers (protocolId, deadline, slippage)
-│       ├── usecases/             # Shared usecases (approve, allowance, swap)
+│       │   ├── abi.ts            # Contract ABIs (incl. DCA_VAULT_ABI)
+│       │   └── encoding.ts       # Helpers (protocolId via keccak256, deadline, slippage)
+│       ├── usecases/             # Shared usecases (approve, allowance, swap, stake)
 │       ├── controllers/
 │       │   └── execution.controller.ts
 │       ├── routes/
 │       │   └── execution.routes.ts
 │       └── modules/              # Service modules (one per product)
-│           └── liquid-staking/   # First module (complete)
-│               ├── config/
-│               │   └── staking-pools.ts
+│           ├── liquid-staking/   # Liquid Staking module (complete)
+│           │   ├── config/staking-pools.ts
+│           │   ├── usecases/
+│           │   │   ├── prepare-enter-strategy.usecase.ts
+│           │   │   ├── prepare-exit-strategy.usecase.ts
+│           │   │   ├── prepare-claim-rewards.usecase.ts
+│           │   │   ├── get-staking-pools.usecase.ts
+│           │   │   └── get-position.usecase.ts
+│           │   ├── controllers/staking.controller.ts
+│           │   └── routes/staking.routes.ts
+│           ├── swap/             # Swap module (complete)
+│           │   ├── config/swap-pairs.ts
+│           │   ├── usecases/
+│           │   │   ├── prepare-swap.usecase.ts   # Bundle: approve? → swap
+│           │   │   ├── get-quote.usecase.ts
+│           │   │   └── get-swap-pairs.usecase.ts
+│           │   ├── controllers/swap.controller.ts
+│           │   └── routes/swap.routes.ts
+│           └── dca/              # DCA module (complete)
 │               ├── usecases/
-│               │   ├── prepare-enter-strategy.usecase.ts
-│               │   ├── prepare-exit-strategy.usecase.ts
-│               │   ├── prepare-claim-rewards.usecase.ts
-│               │   ├── get-staking-pools.usecase.ts
-│               │   └── get-position.usecase.ts
-│               ├── controllers/
-│               │   └── staking.controller.ts
-│               └── routes/
-│                   └── staking.routes.ts
+│               │   ├── prepare-create-order.usecase.ts  # Bundle: approve → createOrder
+│               │   ├── prepare-cancel-order.usecase.ts  # Bundle: cancel → withdraw?
+│               │   ├── get-orders.usecase.ts
+│               │   └── get-executable-orders.usecase.ts # Keeper endpoint
+│               ├── controllers/dca.controller.ts
+│               └── routes/dca.routes.ts
 │
 ├── frontend/
-│   └── index.html                # Demo UI (wallet connect, pools, tx log)
+│   └── index.html                # Demo UI — Staking, Swap, DCA tabs
 │
 ├── script/
-│   ├── Deploy.s.sol              # Base mainnet deploy script
-│   └── DeployTestnet.s.sol       # Base Sepolia deploy script
+│   ├── Deploy.s.sol              # PanoramaExecutor + AerodromeAdapter deploy
+│   ├── DeployDCAVault.s.sol      # DCAVault deploy
+│   └── DeployTestnet.s.sol       # Base Sepolia deploy
 │
 └── test/
     ├── PanoramaExecutor.t.sol    # Unit tests (13 tests)
@@ -232,25 +249,43 @@ BASE_RPC_URL=https://mainnet.base.org forge test --match-path "test/fork/*" -vvv
 
 ## API Endpoints
 
-### Liquid Staking Module (`/staking`)
+### Liquid Staking (`/staking`)
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/staking/pools` | List available staking pools with on-chain data |
-| `GET` | `/staking/position/:userAddress` | Get user's staking positions and earned rewards |
-| `POST` | `/staking/prepare-enter` | Prepare enter strategy bundle (approve → addLiquidity → stake) |
-| `POST` | `/staking/prepare-exit` | Prepare exit strategy bundle (unstake → approve → removeLiquidity) |
-| `POST` | `/staking/prepare-claim` | Prepare claim rewards transaction |
+| `GET` | `/staking/pools` | List staking pools with on-chain data |
+| `GET` | `/staking/position/:userAddress` | Get user positions and earned rewards |
+| `POST` | `/staking/prepare-enter` | Bundle: approve → addLiquidity → stake |
+| `POST` | `/staking/prepare-exit` | Bundle: unstake → approve → removeLiquidity |
+| `POST` | `/staking/prepare-claim` | Single tx: claim AERO rewards |
+
+### Swap (`/swap`)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/swap/pairs` | List available pairs with on-chain reserves |
+| `POST` | `/swap/quote` | Get quote: amountOut, amountOutMin, exchangeRate |
+| `POST` | `/swap/prepare` | Bundle: approve (if needed) → executeSwap |
+
+### DCA (`/dca`)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/dca/prepare-create` | Bundle: approve → createOrder on DCAVault |
+| `POST` | `/dca/prepare-cancel` | Bundle: cancel → withdraw remaining balance |
+| `GET` | `/dca/orders/:userAddress` | List all DCA orders for a user |
+| `GET` | `/dca/order/:orderId` | Get single order with on-chain state |
+| `GET` | `/dca/executable?upTo=100` | **Keeper endpoint** — orders ready to execute now |
 
 ### Core Execution (`/execution`)
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/execution/prepare-swap` | Prepare a token swap |
-| `POST` | `/execution/prepare-approve` | Prepare an ERC-20 approval |
+| `POST` | `/execution/prepare-swap` | Low-level single swap tx (no allowance check) |
+| `POST` | `/execution/prepare-approve` | Prepare ERC-20 approval |
 | `POST` | `/execution/check-allowance` | Check token allowance |
 | `GET` | `/execution/pools` | List Aerodrome pools |
-| `GET` | `/execution/quote` | Get swap quote |
+| `POST` | `/execution/quote` | Get swap quote |
 
 ### Example: Enter Staking Position
 

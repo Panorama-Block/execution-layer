@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 const ETH_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export function encodeProtocolId(name: string): string {
-  return ethers.encodeBytes32String(name);
+  return ethers.keccak256(ethers.toUtf8Bytes(name));
 }
 
 export function isNativeETH(address: string): boolean {

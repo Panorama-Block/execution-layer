@@ -10,20 +10,6 @@ export interface ProtocolConfig {
   adapterAddress: string;
 }
 
-export const PROTOCOLS: Record<string, ProtocolConfig> = {
-  aerodrome: {
-    protocolId: "aerodrome",
-    name: "Aerodrome Finance",
-    chain: "base",
-    contracts: {
-      router: "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",
-      factory: "0x420DD381b31aEf6683db6B902084cB0FFECe40Da",
-      voter: "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5",
-    },
-    adapterAddress: process.env.AERODROME_ADAPTER_ADDRESS || "",
-  },
-};
-
 export const BASE_TOKENS: Record<string, { address: string; decimals: number }> = {
   ETH: { address: "0x0000000000000000000000000000000000000000", decimals: 18 },
   WETH: { address: "0x4200000000000000000000000000000000000006", decimals: 18 },
@@ -37,9 +23,18 @@ export const BASE_TOKENS: Record<string, { address: string; decimals: number }> 
 };
 
 export function getProtocolConfig(protocolId: string): ProtocolConfig {
-  const config = PROTOCOLS[protocolId];
-  if (!config) {
-    throw new Error(`Unsupported protocol: ${protocolId}`);
+  if (protocolId === "aerodrome") {
+    return {
+      protocolId: "aerodrome",
+      name: "Aerodrome Finance",
+      chain: "base",
+      contracts: {
+        router: "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",
+        factory: "0x420DD381b31aEf6683db6B902084cB0FFECe40Da",
+        voter: "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5",
+      },
+      adapterAddress: process.env.AERODROME_ADAPTER_ADDRESS || "",
+    };
   }
-  return config;
+  throw new Error(`Unsupported protocol: ${protocolId}`);
 }

@@ -1,0 +1,479 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "PanoramaBlock Execution Layer API",
+    "description": "On-chain DeFi execution backend for Base. Prepares unsigned transaction bundles for swap, liquidity, and staking operations via Aerodrome Finance.\n\nContracts deployed on Base Mainnet:\n- **PanoramaExecutor**: `0x79D671250f75631ca199d0Fa22b0071052214172`\n- **AerodromeAdapter**: `0xf919A01510591f38407AA4BBE5711646DB6819e3`",
+    "version": "1.0.0",
+    "contact": {
+      "name": "PanoramaBlock"
+    }
+  },
+  "servers": [
+    { "url": "http://localhost:3010", "description": "Local development" }
+  ],
+  "tags": [
+    { "name": "Health", "description": "Service health check" },
+    { "name": "Staking", "description": "Liquid Staking module — enter/exit positions, claim rewards" },
+    { "name": "Execution", "description": "Core execution — swaps, approvals, allowances, pools, quotes" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "service": { "type": "string", "example": "execution-service" },
+                    "port": { "type": "string", "example": "3010" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/staking/pools": {
+      "get": {
+        "tags": ["Staking"],
+        "summary": "List available staking pools",
+        "description": "Returns all enabled Aerodrome pools with on-chain data: pool address, gauge address, total staked, reward rate.",
+        "responses": {
+          "200": {
+            "description": "List of pools",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pools": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/StakingPool" }
+                    }
+                  }
+                },
+                "example": {
+                  "pools": [{
+                    "id": "weth-usdc-volatile",
+                    "name": "WETH/USDC Volatile",
+                    "tokenA": { "symbol": "WETH", "address": "0x4200000000000000000000000000000000000006", "decimals": 18 },
+                    "tokenB": { "symbol": "USDC", "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "decimals": 6 },
+                    "stable": false,
+                    "poolAddress": "0xcDAC0d6c6C59727a65F871236188350531885C43",
+                    "gaugeAddress": "0x519BBD1Dd8C6A94C46080E24f316c14Ee758C025",
+                    "gaugeAlive": true,
+                    "rewardToken": { "symbol": "AERO", "address": "0x940181a94A35A4569E4529A3CDfB74e38FD98631", "decimals": 18 },
+                    "totalStaked": "88416667562256151",
+                    "rewardRate": "72092502098248363"
+                  }]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/staking/position/{userAddress}": {
+      "get": {
+        "tags": ["Staking"],
+        "summary": "Get user staking positions",
+        "description": "Returns all active staking positions (stakedBalance > 0) and earned rewards for a given user address.",
+        "parameters": [
+          {
+            "name": "userAddress",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "example": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User positions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "positions": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Position" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/staking/prepare-enter": {
+      "post": {
+        "tags": ["Staking"],
+        "summary": "Prepare enter staking strategy",
+        "description": "Builds a TransactionBundle to enter a staking position: approve tokens → addLiquidity → approve LP → stake in gauge. Returns ordered unsigned transactions for the frontend to sign.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EnterStrategyRequest" },
+              "example": {
+                "userAddress": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561",
+                "poolId": "weth-usdc-volatile",
+                "amountA": "10000000000000000",
+                "amountB": "10000000",
+                "slippageBps": 100,
+                "deadlineMinutes": 20
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction bundle ready to sign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bundle": { "$ref": "#/components/schemas/TransactionBundle" },
+                    "metadata": {
+                      "type": "object",
+                      "properties": {
+                        "poolAddress": { "type": "string" },
+                        "gaugeAddress": { "type": "string" },
+                        "tokenA": { "$ref": "#/components/schemas/TokenInfo" },
+                        "tokenB": { "$ref": "#/components/schemas/TokenInfo" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing required fields" },
+          "500": { "description": "Server error (pool not found, gauge not found, etc.)" }
+        }
+      }
+    },
+    "/staking/prepare-exit": {
+      "post": {
+        "tags": ["Staking"],
+        "summary": "Prepare exit staking strategy",
+        "description": "Builds a TransactionBundle to exit a staking position: unstake from gauge → approve LP → removeLiquidity. Supports full or partial exit.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ExitStrategyRequest" },
+              "example": {
+                "userAddress": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561",
+                "poolId": "weth-usdc-volatile",
+                "deadlineMinutes": 20
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction bundle ready to sign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bundle": { "$ref": "#/components/schemas/TransactionBundle" },
+                    "metadata": {
+                      "type": "object",
+                      "properties": {
+                        "poolId": { "type": "string" },
+                        "poolAddress": { "type": "string" },
+                        "gaugeAddress": { "type": "string" },
+                        "lpAmount": { "type": "string" },
+                        "stable": { "type": "boolean" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing required fields" },
+          "500": { "description": "Server error" }
+        }
+      }
+    },
+    "/staking/prepare-claim": {
+      "post": {
+        "tags": ["Staking"],
+        "summary": "Prepare claim rewards",
+        "description": "Prepares a single transaction to claim AERO rewards from a gauge. Called directly on the gauge (not through PanoramaExecutor).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ClaimRewardsRequest" },
+              "example": {
+                "userAddress": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561",
+                "poolId": "weth-usdc-volatile"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Claim transaction ready to sign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": { "$ref": "#/components/schemas/PreparedTransaction" },
+                    "metadata": {
+                      "type": "object",
+                      "properties": {
+                        "poolId": { "type": "string" },
+                        "gaugeAddress": { "type": "string" },
+                        "earnedRewards": { "type": "string" },
+                        "rewardToken": { "$ref": "#/components/schemas/TokenInfo" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing required fields" },
+          "500": { "description": "Server error (no rewards, gauge not found, etc.)" }
+        }
+      }
+    },
+    "/execution/prepare-swap": {
+      "post": {
+        "tags": ["Execution"],
+        "summary": "Prepare a token swap",
+        "description": "Prepares a swap transaction through PanoramaExecutor → AerodromeAdapter.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SwapRequest" },
+              "example": {
+                "tokenIn": "0x4200000000000000000000000000000000000006",
+                "tokenOut": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "amountIn": "10000000000000000",
+                "slippageBps": 50,
+                "stable": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Swap transaction prepared" },
+          "500": { "description": "Server error" }
+        }
+      }
+    },
+    "/execution/prepare-approve": {
+      "post": {
+        "tags": ["Execution"],
+        "summary": "Prepare ERC-20 approval",
+        "description": "Prepares an approve transaction for a given token and spender.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token", "spender", "amount"],
+                "properties": {
+                  "token": { "type": "string", "description": "ERC-20 token address" },
+                  "spender": { "type": "string", "description": "Address to approve" },
+                  "amount": { "type": "string", "description": "Amount in wei" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Approve transaction prepared" },
+          "500": { "description": "Server error" }
+        }
+      }
+    },
+    "/execution/check-allowance": {
+      "post": {
+        "tags": ["Execution"],
+        "summary": "Check ERC-20 allowance",
+        "description": "Queries the on-chain allowance for a token/owner/spender combination.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token", "owner", "spender"],
+                "properties": {
+                  "token": { "type": "string" },
+                  "owner": { "type": "string" },
+                  "spender": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Allowance data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": { "type": "string" },
+                    "owner": { "type": "string" },
+                    "spender": { "type": "string" },
+                    "allowance": { "type": "string" },
+                    "isApproved": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/execution/pools": {
+      "get": {
+        "tags": ["Execution"],
+        "summary": "List Aerodrome pools",
+        "description": "Returns available Aerodrome pools with reserves and pricing data.",
+        "responses": {
+          "200": { "description": "Pool list" }
+        }
+      }
+    },
+    "/execution/quote": {
+      "get": {
+        "tags": ["Execution"],
+        "summary": "Get swap quote",
+        "description": "Returns estimated output amount for a swap without executing it.",
+        "parameters": [
+          { "name": "tokenIn", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "tokenOut", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "amountIn", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "stable", "in": "query", "schema": { "type": "boolean", "default": false } }
+        ],
+        "responses": {
+          "200": { "description": "Quote data with estimated output" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "PreparedTransaction": {
+        "type": "object",
+        "properties": {
+          "to": { "type": "string", "description": "Contract address to call" },
+          "data": { "type": "string", "description": "Encoded calldata" },
+          "value": { "type": "string", "description": "ETH value in wei" },
+          "chainId": { "type": "integer", "description": "Chain ID (8453 for Base)" },
+          "description": { "type": "string", "description": "Human-readable step description" }
+        }
+      },
+      "TransactionBundle": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PreparedTransaction" }
+          },
+          "totalSteps": { "type": "integer" },
+          "summary": { "type": "string" }
+        }
+      },
+      "TokenInfo": {
+        "type": "object",
+        "properties": {
+          "symbol": { "type": "string" },
+          "address": { "type": "string" },
+          "decimals": { "type": "integer" }
+        }
+      },
+      "StakingPool": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "tokenA": { "$ref": "#/components/schemas/TokenInfo" },
+          "tokenB": { "$ref": "#/components/schemas/TokenInfo" },
+          "stable": { "type": "boolean" },
+          "poolAddress": { "type": "string" },
+          "gaugeAddress": { "type": "string" },
+          "gaugeAlive": { "type": "boolean" },
+          "rewardToken": { "$ref": "#/components/schemas/TokenInfo" },
+          "totalStaked": { "type": "string" },
+          "rewardRate": { "type": "string" }
+        }
+      },
+      "Position": {
+        "type": "object",
+        "properties": {
+          "poolId": { "type": "string" },
+          "poolName": { "type": "string" },
+          "stakedBalance": { "type": "string" },
+          "earnedRewards": { "type": "string" }
+        }
+      },
+      "EnterStrategyRequest": {
+        "type": "object",
+        "required": ["userAddress", "poolId", "amountA", "amountB"],
+        "properties": {
+          "userAddress": { "type": "string", "description": "User wallet address" },
+          "poolId": { "type": "string", "description": "Pool identifier (e.g., weth-usdc-volatile)" },
+          "amountA": { "type": "string", "description": "Amount of tokenA in wei" },
+          "amountB": { "type": "string", "description": "Amount of tokenB in smallest unit" },
+          "slippageBps": { "type": "integer", "description": "Slippage tolerance in basis points (100 = 1%)", "default": 100 },
+          "deadlineMinutes": { "type": "integer", "description": "Transaction deadline in minutes from now", "default": 20 }
+        }
+      },
+      "ExitStrategyRequest": {
+        "type": "object",
+        "required": ["userAddress", "poolId"],
+        "properties": {
+          "userAddress": { "type": "string" },
+          "poolId": { "type": "string" },
+          "amount": { "type": "string", "description": "LP amount to exit in wei. Omit for full exit." },
+          "deadlineMinutes": { "type": "integer", "default": 20 }
+        }
+      },
+      "ClaimRewardsRequest": {
+        "type": "object",
+        "required": ["userAddress", "poolId"],
+        "properties": {
+          "userAddress": { "type": "string" },
+          "poolId": { "type": "string" }
+        }
+      },
+      "SwapRequest": {
+        "type": "object",
+        "required": ["tokenIn", "tokenOut", "amountIn"],
+        "properties": {
+          "tokenIn": { "type": "string" },
+          "tokenOut": { "type": "string" },
+          "amountIn": { "type": "string" },
+          "slippageBps": { "type": "integer", "default": 50 },
+          "stable": { "type": "boolean", "default": false }
+        }
+      }
+    }
+  }
+}

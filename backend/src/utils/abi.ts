@@ -51,3 +51,16 @@ export const VOTER_ABI = [
   "function isGauge(address gauge) external view returns (bool)",
   "function isAlive(address gauge) external view returns (bool)",
 ] as const;
+
+export const DCA_VAULT_ABI = [
+  "function createOrder(address tokenIn, address tokenOut, uint256 amountPerSwap, uint256 interval, uint256 remainingSwaps, bool stable, uint256 depositAmount) external returns (uint256 orderId)",
+  "function deposit(uint256 orderId, uint256 amount) external",
+  "function cancel(uint256 orderId) external",
+  "function withdraw(uint256 orderId) external",
+  "function execute(uint256 orderId, uint256 amountOutMin, bytes calldata extraData, uint256 deadline) external",
+  "function getUserOrders(address user) external view returns (uint256[])",
+  "function getOrder(uint256 orderId) external view returns (tuple(address owner, address tokenIn, address tokenOut, uint256 amountPerSwap, uint256 interval, uint256 lastExecuted, uint256 remainingSwaps, uint256 balance, bool stable, bool active))",
+  "function isExecutable(uint256 orderId) external view returns (bool)",
+  "function nextExecutionAt(uint256 orderId) external view returns (uint256)",
+  "function orders(uint256) external view returns (address owner, address tokenIn, address tokenOut, uint256 amountPerSwap, uint256 interval, uint256 lastExecuted, uint256 remainingSwaps, uint256 balance, bool stable, bool active)",
+] as const;

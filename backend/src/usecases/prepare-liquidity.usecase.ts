@@ -1,23 +1,17 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../config/chains";
 import { PANORAMA_EXECUTOR_ABI } from "../utils/abi";
-import { encodeProtocolId, encodeLiquidityExtraData, getDeadline, isNativeETH } from "../utils/encoding";
+import { encodeProtocolId, getDeadline, isNativeETH, applySlippage } from "../utils/encoding";
+import { PreparedTransaction } from "../types/transaction";
 
 export interface PrepareLiquidityRequest {
   tokenA: string;
   tokenB: string;
   amountA: string;
   amountB: string;
-  minLpAmount?: string;
+  slippageBps?: number;
   stable?: boolean;
   deadlineMinutes?: number;
-}
-
-export interface PreparedTransaction {
-  to: string;
-  data: string;
-  value: string;
-  chainId: number;
 }
 
 export async function executePrepareAddLiquidity(
@@ -26,22 +20,27 @@ export async function executePrepareAddLiquidity(
   const chain = getChainConfig("base");
   const amountA = BigInt(req.amountA);
   const amountB = BigInt(req.amountB);
-  const minLpAmount = BigInt(req.minLpAmount ?? "0");
   const stable = req.stable ?? false;
+  const slippageBps = req.slippageBps ?? 50;
   const deadlineMinutes = req.deadlineMinutes ?? 20;
+
+  const amountAMin = applySlippage(amountA, slippageBps);
+  const amountBMin = applySlippage(amountB, slippageBps);
 
   const iface = new ethers.Interface(PANORAMA_EXECUTOR_ABI);
   const protocolId = encodeProtocolId("aerodrome");
-  const extraData = encodeLiquidityExtraData(stable);
+  const extraData = "0x";
   const deadline = getDeadline(deadlineMinutes);
 
   const data = iface.encodeFunctionData("executeAddLiquidity", [
     protocolId,
     req.tokenA,
     req.tokenB,
+    stable,
     amountA,
     amountB,
-    minLpAmount,
+    amountAMin,
+    amountBMin,
     extraData,
     deadline,
   ]);

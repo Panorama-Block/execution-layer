@@ -159,7 +159,7 @@ contract AerodromeAdapter is IProtocolAdapter {
     function stake(address lpToken, uint256 amount, bytes calldata extraData) external onlyExecutor returns (bool) {
         address gauge = _resolveGauge(lpToken, extraData);
         _approve(lpToken, gauge, amount);
-        IAerodromeGauge(gauge).deposit(amount, msg.sender);
+        IAerodromeGauge(gauge).deposit(amount);
         return true;
     }
 

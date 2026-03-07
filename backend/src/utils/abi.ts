@@ -1,7 +1,7 @@
 export const PANORAMA_EXECUTOR_ABI = [
   "function executeSwap(bytes32 protocolId, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin, bytes calldata extraData, uint256 deadline) external payable returns (uint256 amountOut)",
-  "function executeAddLiquidity(bytes32 protocolId, address tokenA, address tokenB, uint256 amountA, uint256 amountB, uint256 minLpAmount, bytes calldata extraData, uint256 deadline) external payable returns (uint256 lpAmount)",
-  "function executeRemoveLiquidity(bytes32 protocolId, address tokenA, address tokenB, uint256 lpAmount, uint256 minAmountA, uint256 minAmountB, bytes calldata extraData, uint256 deadline) external payable returns (uint256 amountA, uint256 amountB)",
+  "function executeAddLiquidity(bytes32 protocolId, address tokenA, address tokenB, bool stable, uint256 amountADesired, uint256 amountBDesired, uint256 amountAMin, uint256 amountBMin, bytes calldata extraData, uint256 deadline) external payable returns (uint256 liquidity)",
+  "function executeRemoveLiquidity(bytes32 protocolId, address tokenA, address tokenB, bool stable, uint256 liquidity, uint256 amountAMin, uint256 amountBMin, bytes calldata extraData, uint256 deadline) external returns (uint256 amountA, uint256 amountB)",
   "function executeStake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData) external",
   "function executeUnstake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData) external",
   "function adapters(bytes32) external view returns (address)",
@@ -31,4 +31,23 @@ export const POOL_ABI = [
   "function token1() external view returns (address)",
   "function stable() external view returns (bool)",
   "function getReserves() external view returns (uint256, uint256, uint256)",
+] as const;
+
+export const GAUGE_ABI = [
+  "function deposit(uint256 amount) external",
+  "function deposit(uint256 amount, address recipient) external",
+  "function withdraw(uint256 amount) external",
+  "function balanceOf(address account) external view returns (uint256)",
+  "function earned(address account) external view returns (uint256)",
+  "function getReward(address account) external",
+  "function rewardRate() external view returns (uint256)",
+  "function rewardToken() external view returns (address)",
+  "function totalSupply() external view returns (uint256)",
+  "function stakingToken() external view returns (address)",
+] as const;
+
+export const VOTER_ABI = [
+  "function gauges(address pool) external view returns (address)",
+  "function isGauge(address gauge) external view returns (bool)",
+  "function isAlive(address gauge) external view returns (bool)",
 ] as const;

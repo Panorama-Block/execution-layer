@@ -24,7 +24,7 @@ export interface PoolDetailRequest {
   stable?: boolean;
 }
 
-export async function executeGetPoolDetail(req: PoolDetailRequest) {
+export async function executeGetPoolDetail(req: PoolDetailRequest): Promise<PoolsResponse["pools"][0] | null> {
   const stable = req.stable ?? false;
   const poolAddress = await getPoolAddress(req.tokenA, req.tokenB, stable);
 

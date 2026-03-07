@@ -7,6 +7,8 @@ import {
   prepareUnstake,
   getPools,
   getPoolDetail,
+  checkAllowance,
+  prepareApprove,
 } from "../controllers/execution.controller";
 
 export const executionRoutes = Router();
@@ -19,6 +21,10 @@ executionRoutes.post("/prepare-swap", prepareSwap);
 executionRoutes.post("/prepare-liquidity", prepareLiquidity);
 executionRoutes.post("/prepare-stake", prepareStake);
 executionRoutes.post("/prepare-unstake", prepareUnstake);
+
+// Allowance & approvals
+executionRoutes.post("/check-allowance", checkAllowance);
+executionRoutes.post("/prepare-approve", prepareApprove);
 
 // Pool data
 executionRoutes.get("/pools", getPools);

@@ -254,6 +254,9 @@ contract PanoramaExecutor {
 
         IProtocolAdapter(adapter).unstake(lpToken, amount, extraData);
 
+        // Forward unstaked LP tokens back to user
+        lpToken.safeTransfer(msg.sender, amount);
+
         emit UnstakeExecuted(msg.sender, protocolId, lpToken, amount);
     }
 

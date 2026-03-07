@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PanoramaBlock - Execution Layer</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.9.0/dist/ethers.umd.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0a0b0f;
+      color: #e1e1e6;
+      min-height: 100vh;
+    }
+    header {
+      background: linear-gradient(135deg, #13141a 0%, #1a1b26 100%);
+      border-bottom: 1px solid #2a2b36;
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo {
+      font-size: 20px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .logo span { font-weight: 400; color: #888; -webkit-text-fill-color: #888; }
+    #connectBtn {
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: opacity 0.2s;
+    }
+    #connectBtn:hover { opacity: 0.85; }
+    #connectBtn.connected { background: #1a3a2a; color: #4ade80; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+    @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+    .card {
+      background: #13141a;
+      border: 1px solid #2a2b36;
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .card h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: #a855f7;
+    }
+    .pool-item {
+      background: #1a1b26;
+      border: 1px solid #2a2b36;
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+    .pool-name { font-weight: 600; font-size: 15px; margin-bottom: 6px; }
+    .pool-detail { font-size: 13px; color: #888; margin-bottom: 3px; }
+    .pool-detail a { color: #a855f7; text-decoration: none; }
+    .pool-detail a:hover { text-decoration: underline; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-active { background: #1a3a2a; color: #4ade80; }
+    .badge-volatile { background: #2a2a1a; color: #facc15; }
+    .badge-stable { background: #1a2a3a; color: #60a5fa; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 13px; color: #888; margin-bottom: 4px; }
+    .form-group input, .form-group select {
+      width: 100%;
+      background: #1a1b26;
+      border: 1px solid #2a2b36;
+      color: #e1e1e6;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+    }
+    .form-group input:focus, .form-group select:focus { border-color: #7c3aed; }
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      margin-bottom: 8px;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: linear-gradient(135deg, #7c3aed, #6d28d9); color: white; }
+    .btn-danger { background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; }
+    .btn-green { background: linear-gradient(135deg, #16a34a, #15803d); color: white; }
+    .log-container {
+      background: #0d0e12;
+      border: 1px solid #2a2b36;
+      border-radius: 12px;
+      padding: 16px;
+      max-height: 500px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 12.5px;
+      line-height: 1.7;
+    }
+    .log-entry { padding: 2px 0; border-bottom: 1px solid #1a1b26; }
+    .log-time { color: #555; }
+    .log-info { color: #60a5fa; }
+    .log-success { color: #4ade80; }
+    .log-error { color: #f87171; }
+    .log-tx { color: #a855f7; }
+    .log-warn { color: #facc15; }
+    .position-item {
+      background: #1a1b26;
+      border: 1px solid #2a2b36;
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+    .position-value { font-size: 18px; font-weight: 700; color: #4ade80; }
+    .empty-state { text-align: center; color: #555; padding: 30px; font-size: 14px; }
+    .contracts-info {
+      background: #1a1b26;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+      font-size: 12px;
+    }
+    .contracts-info code { color: #a855f7; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #555; border-top-color: #a855f7; border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">PanoramaBlock <span>Execution Layer</span></div>
+    <button id="connectBtn" onclick="connectWallet()">Connect Wallet</button>
+  </header>
+
+  <div class="container">
+    <div class="contracts-info">
+      <strong>Deployed Contracts (Base Mainnet)</strong><br />
+      PanoramaExecutor: <code>0x79D671250f75631ca199d0Fa22b0071052214172</code> &nbsp;
+      AerodromeAdapter: <code>0xf919A01510591f38407AA4BBE5711646DB6819e3</code>
+    </div>
+
+    <div class="grid">
+      <!-- Left Column -->
+      <div>
+        <div class="card" style="margin-bottom:20px">
+          <h2>Available Pools</h2>
+          <div id="poolsList"><div class="empty-state">Loading pools...</div></div>
+        </div>
+
+        <div class="card">
+          <h2>Your Positions</h2>
+          <div id="positionsList"><div class="empty-state">Connect wallet to view positions</div></div>
+        </div>
+      </div>
+
+      <!-- Right Column -->
+      <div>
+        <div class="card" style="margin-bottom:20px">
+          <h2>Enter Staking Position</h2>
+          <div class="form-group">
+            <label>Pool</label>
+            <select id="enterPool"></select>
+          </div>
+          <div class="form-group">
+            <label>Amount Token A</label>
+            <input id="amountA" type="text" placeholder="e.g. 0.001" />
+          </div>
+          <div class="form-group">
+            <label>Amount Token B</label>
+            <input id="amountB" type="text" placeholder="e.g. 1.5" />
+          </div>
+          <div class="form-group">
+            <label>Slippage (bps)</label>
+            <input id="slippage" type="text" value="100" placeholder="100 = 1%" />
+          </div>
+          <button class="btn btn-primary" id="enterBtn" onclick="enterStrategy()" disabled>
+            Enter Strategy
+          </button>
+        </div>
+
+        <div class="card" style="margin-bottom:20px">
+          <h2>Exit Position / Claim</h2>
+          <div class="form-group">
+            <label>Pool</label>
+            <select id="exitPool"></select>
+          </div>
+          <button class="btn btn-danger" id="exitBtn" onclick="exitStrategy()" disabled>
+            Exit Full Position
+          </button>
+          <button class="btn btn-green" id="claimBtn" onclick="claimRewards()" disabled>
+            Claim Rewards
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transaction Log -->
+    <div class="card">
+      <h2>Transaction Log</h2>
+      <div class="log-container" id="logContainer">
+        <div class="log-entry"><span class="log-info">System ready. Connect your wallet to begin.</span></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API = "http://localhost:3010";
+const BASESCAN = "https://basescan.org/tx/";
+const BASE_CHAIN_ID = "0x2105"; // 8453
+
+let provider = null;
+let signer = null;
+let userAddress = null;
+let pools = [];
+
+// ========== LOGGING ==========
+
+function log(msg, type = "info") {
+  const container = document.getElementById("logContainer");
+  const time = new Date().toLocaleTimeString();
+  const entry = document.createElement("div");
+  entry.className = "log-entry";
+  entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-${type}">${msg}</span>`;
+  container.appendChild(entry);
+  container.scrollTop = container.scrollHeight;
+}
+
+function logTx(hash, description) {
+  log(`${description} — <a href="${BASESCAN}${hash}" target="_blank" style="color:#a855f7">${hash.slice(0, 10)}...${hash.slice(-8)}</a>`, "tx");
+}
+
+// ========== WALLET ==========
+
+async function connectWallet() {
+  if (!window.ethereum) {
+    log("MetaMask not found. Please install it.", "error");
+    return;
+  }
+
+  try {
+    log("Connecting wallet...");
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+
+    // Switch to Base if needed
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: BASE_CHAIN_ID }],
+      });
+    } catch (switchErr) {
+      if (switchErr.code === 4902) {
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: BASE_CHAIN_ID,
+            chainName: "Base",
+            rpcUrls: ["https://mainnet.base.org"],
+            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+            blockExplorerUrls: ["https://basescan.org"],
+          }],
+        });
+      }
+    }
+
+    signer = await provider.getSigner();
+    userAddress = await signer.getAddress();
+
+    const balance = await provider.getBalance(userAddress);
+    const balEth = ethers.formatEther(balance);
+
+    const btn = document.getElementById("connectBtn");
+    btn.textContent = `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`;
+    btn.classList.add("connected");
+
+    log(`Connected: ${userAddress}`, "success");
+    log(`Balance: ${parseFloat(balEth).toFixed(6)} ETH on Base`, "info");
+
+    document.getElementById("enterBtn").disabled = false;
+    document.getElementById("exitBtn").disabled = false;
+    document.getElementById("claimBtn").disabled = false;
+
+    loadPositions();
+  } catch (err) {
+    log(`Connection failed: ${err.message}`, "error");
+  }
+}
+
+// ========== POOLS ==========
+
+async function loadPools() {
+  try {
+    const res = await fetch(`${API}/staking/pools`);
+    const data = await res.json();
+    pools = data.pools || [];
+
+    const list = document.getElementById("poolsList");
+    const enterSelect = document.getElementById("enterPool");
+    const exitSelect = document.getElementById("exitPool");
+
+    if (pools.length === 0) {
+      list.innerHTML = '<div class="empty-state">No pools available</div>';
+      return;
+    }
+
+    list.innerHTML = "";
+    enterSelect.innerHTML = "";
+    exitSelect.innerHTML = "";
+
+    pools.forEach((p) => {
+      const typeBadge = p.stable
+        ? '<span class="badge badge-stable">Stable</span>'
+        : '<span class="badge badge-volatile">Volatile</span>';
+      const aliveBadge = p.gaugeAlive
+        ? '<span class="badge badge-active">Gauge Active</span>'
+        : '';
+
+      const totalStakedFormatted = parseFloat(ethers.formatEther(p.totalStaked)).toFixed(4);
+      const rewardRateFormatted = parseFloat(ethers.formatEther(p.rewardRate)).toFixed(6);
+
+      list.innerHTML += `
+        <div class="pool-item">
+          <div class="pool-name">${p.name} ${typeBadge} ${aliveBadge}</div>
+          <div class="pool-detail">Pool: <a href="https://basescan.org/address/${p.poolAddress}" target="_blank">${p.poolAddress.slice(0, 10)}...${p.poolAddress.slice(-8)}</a></div>
+          <div class="pool-detail">Gauge: <a href="https://basescan.org/address/${p.gaugeAddress}" target="_blank">${p.gaugeAddress.slice(0, 10)}...${p.gaugeAddress.slice(-8)}</a></div>
+          <div class="pool-detail">Total Staked: ${totalStakedFormatted} LP | Reward Rate: ${rewardRateFormatted} AERO/sec</div>
+          <div class="pool-detail">Reward Token: ${p.rewardToken.symbol}</div>
+        </div>
+      `;
+
+      const opt1 = document.createElement("option");
+      opt1.value = p.id;
+      opt1.textContent = p.name;
+      enterSelect.appendChild(opt1);
+
+      const opt2 = document.createElement("option");
+      opt2.value = p.id;
+      opt2.textContent = p.name;
+      exitSelect.appendChild(opt2);
+    });
+
+    log(`Loaded ${pools.length} pool(s) from Base mainnet`, "success");
+  } catch (err) {
+    log(`Failed to load pools: ${err.message}`, "error");
+  }
+}
+
+// ========== POSITIONS ==========
+
+async function loadPositions() {
+  if (!userAddress) return;
+
+  try {
+    const res = await fetch(`${API}/staking/position/${userAddress}`);
+    const data = await res.json();
+    const positions = data.positions || [];
+    const list = document.getElementById("positionsList");
+
+    if (positions.length === 0) {
+      list.innerHTML = '<div class="empty-state">No active staking positions</div>';
+      log("No active staking positions found", "info");
+      return;
+    }
+
+    list.innerHTML = "";
+    positions.forEach((pos) => {
+      const staked = parseFloat(ethers.formatEther(pos.stakedBalance)).toFixed(6);
+      const earned = parseFloat(ethers.formatEther(pos.earnedRewards)).toFixed(6);
+
+      list.innerHTML += `
+        <div class="position-item">
+          <div class="pool-name">${pos.poolName}</div>
+          <div class="pool-detail">Staked: <span class="position-value">${staked} LP</span></div>
+          <div class="pool-detail">Earned Rewards: <span style="color:#facc15">${earned} AERO</span></div>
+        </div>
+      `;
+    });
+
+    log(`Found ${positions.length} active position(s)`, "success");
+  } catch (err) {
+    log(`Failed to load positions: ${err.message}`, "error");
+  }
+}
+
+// ========== EXECUTE TRANSACTION BUNDLE ==========
+
+async function executeTxBundle(bundle) {
+  log(`Executing bundle: ${bundle.summary} (${bundle.totalSteps} steps)`, "info");
+
+  for (let i = 0; i < bundle.steps.length; i++) {
+    const step = bundle.steps[i];
+    const stepNum = i + 1;
+
+    log(`Step ${stepNum}/${bundle.totalSteps}: ${step.description || "Sending transaction..."}`, "info");
+
+    try {
+      const tx = await signer.sendTransaction({
+        to: step.to,
+        data: step.data,
+        value: step.value || "0",
+      });
+
+      logTx(tx.hash, `Step ${stepNum} submitted`);
+      log(`Waiting for confirmation... <span class="spinner"></span>`, "warn");
+
+      const receipt = await tx.wait();
+
+      if (receipt.status === 1) {
+        log(`Step ${stepNum} confirmed in block ${receipt.blockNumber} (gas: ${receipt.gasUsed.toString()})`, "success");
+        logTx(tx.hash, `Step ${stepNum} CONFIRMED`);
+      } else {
+        log(`Step ${stepNum} REVERTED`, "error");
+        throw new Error("Transaction reverted");
+      }
+    } catch (err) {
+      if (err.code === "ACTION_REJECTED") {
+        log(`Step ${stepNum} rejected by user`, "warn");
+      } else {
+        log(`Step ${stepNum} failed: ${err.message}`, "error");
+      }
+      return false;
+    }
+  }
+
+  log(`Bundle complete: ${bundle.summary}`, "success");
+  return true;
+}
+
+// ========== ENTER STRATEGY ==========
+
+async function enterStrategy() {
+  if (!userAddress) return log("Connect wallet first", "error");
+
+  const poolId = document.getElementById("enterPool").value;
+  const amountAInput = document.getElementById("amountA").value;
+  const amountBInput = document.getElementById("amountB").value;
+  const slippageBps = document.getElementById("slippage").value || "100";
+
+  if (!amountAInput || !amountBInput) {
+    return log("Please fill in both amounts", "error");
+  }
+
+  const pool = pools.find((p) => p.id === poolId);
+  if (!pool) return log("Pool not found", "error");
+
+  const amountA = ethers.parseUnits(amountAInput, pool.tokenA.decimals).toString();
+  const amountB = ethers.parseUnits(amountBInput, pool.tokenB.decimals).toString();
+
+  log(`Preparing enter strategy for ${pool.name}...`, "info");
+  log(`Amount ${pool.tokenA.symbol}: ${amountAInput} | Amount ${pool.tokenB.symbol}: ${amountBInput} | Slippage: ${slippageBps} bps`, "info");
+
+  const btn = document.getElementById("enterBtn");
+  btn.disabled = true;
+  btn.textContent = "Preparing...";
+
+  try {
+    const res = await fetch(`${API}/staking/prepare-enter`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userAddress,
+        poolId,
+        amountA,
+        amountB,
+        slippageBps: parseInt(slippageBps),
+        deadlineMinutes: 20,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (data.error) {
+      log(`Backend error: ${data.error}`, "error");
+      return;
+    }
+
+    log(`Bundle prepared: ${data.bundle.totalSteps} steps`, "success");
+    log(`Pool: ${data.metadata.poolAddress}`, "info");
+    log(`Gauge: ${data.metadata.gaugeAddress}`, "info");
+
+    const success = await executeTxBundle(data.bundle);
+    if (success) {
+      log("Staking position entered successfully!", "success");
+      loadPositions();
+    }
+  } catch (err) {
+    log(`Enter strategy failed: ${err.message}`, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Enter Strategy";
+  }
+}
+
+// ========== EXIT STRATEGY ==========
+
+async function exitStrategy() {
+  if (!userAddress) return log("Connect wallet first", "error");
+
+  const poolId = document.getElementById("exitPool").value;
+
+  log(`Preparing exit strategy for ${poolId}...`, "info");
+
+  const btn = document.getElementById("exitBtn");
+  btn.disabled = true;
+  btn.textContent = "Preparing...";
+
+  try {
+    const res = await fetch(`${API}/staking/prepare-exit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userAddress,
+        poolId,
+        deadlineMinutes: 20,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (data.error) {
+      log(`Backend error: ${data.error}`, "error");
+      return;
+    }
+
+    log(`Exit bundle prepared: ${data.bundle.totalSteps} steps | LP: ${ethers.formatEther(data.metadata.lpAmount)}`, "success");
+
+    const success = await executeTxBundle(data.bundle);
+    if (success) {
+      log("Position exited successfully!", "success");
+      loadPositions();
+    }
+  } catch (err) {
+    log(`Exit strategy failed: ${err.message}`, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Exit Full Position";
+  }
+}
+
+// ========== CLAIM REWARDS ==========
+
+async function claimRewards() {
+  if (!userAddress) return log("Connect wallet first", "error");
+
+  const poolId = document.getElementById("exitPool").value;
+
+  log(`Preparing claim rewards for ${poolId}...`, "info");
+
+  const btn = document.getElementById("claimBtn");
+  btn.disabled = true;
+  btn.textContent = "Preparing...";
+
+  try {
+    const res = await fetch(`${API}/staking/prepare-claim`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userAddress, poolId }),
+    });
+
+    const data = await res.json();
+
+    if (data.error) {
+      log(`Backend error: ${data.error}`, "error");
+      return;
+    }
+
+    const earned = ethers.formatUnits(data.metadata.earnedRewards, data.metadata.rewardToken.decimals);
+    log(`Claimable: ${earned} ${data.metadata.rewardToken.symbol}`, "success");
+    logTx("", `Gauge: ${data.metadata.gaugeAddress}`);
+
+    // Single transaction (not a bundle)
+    const tx = await signer.sendTransaction({
+      to: data.transaction.to,
+      data: data.transaction.data,
+      value: data.transaction.value || "0",
+    });
+
+    logTx(tx.hash, "Claim tx submitted");
+    log(`Waiting for confirmation... <span class="spinner"></span>`, "warn");
+
+    const receipt = await tx.wait();
+    if (receipt.status === 1) {
+      log(`Claim confirmed in block ${receipt.blockNumber}`, "success");
+      logTx(tx.hash, "Rewards CLAIMED");
+      loadPositions();
+    } else {
+      log("Claim transaction reverted", "error");
+    }
+  } catch (err) {
+    if (err.code === "ACTION_REJECTED") {
+      log("Claim rejected by user", "warn");
+    } else {
+      log(`Claim failed: ${err.message}`, "error");
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Claim Rewards";
+  }
+}
+
+// ========== INIT ==========
+
+window.addEventListener("DOMContentLoaded", () => {
+  loadPools();
+
+  // Auto-reconnect if already connected
+  if (window.ethereum && window.ethereum.selectedAddress) {
+    connectWallet();
+  }
+
+  // Listen for account/chain changes
+  if (window.ethereum) {
+    window.ethereum.on("accountsChanged", () => window.location.reload());
+    window.ethereum.on("chainChanged", () => window.location.reload());
+  }
+});
+</script>
+</body>
+</html>

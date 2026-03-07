@@ -2,9 +2,9 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import {PanoramaExecutor} from "../contracts/core/PanoramaExecutor.sol";
-import {AerodromeAdapter} from "../contracts/adapters/AerodromeAdapter.sol";
-import {IAerodromeRouter} from "../contracts/interfaces/IAerodromeRouter.sol";
+import {PanoramaExecutor} from "../../contracts/core/PanoramaExecutor.sol";
+import {AerodromeAdapter} from "../../contracts/adapters/AerodromeAdapter.sol";
+import {IAerodromeRouter} from "../../contracts/interfaces/IAerodromeRouter.sol";
 
 /**
  * @title AerodromeAdapterForkTest
@@ -25,7 +25,7 @@ contract AerodromeAdapterForkTest is Test {
     address public user = makeAddr("user");
 
     function setUp() public {
-        // Only run on Base fork
+        vm.createSelectFork(vm.envString("BASE_RPC_URL"));
         // Deploy executor and adapter
         executor = new PanoramaExecutor();
         adapter = new AerodromeAdapter(AERODROME_ROUTER, AERODROME_VOTER, address(executor));

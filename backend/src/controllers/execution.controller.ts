@@ -4,6 +4,8 @@ import { executePrepareSwap } from "../usecases/prepare-swap.usecase";
 import { executePrepareAddLiquidity } from "../usecases/prepare-liquidity.usecase";
 import { executePrepareStake, executePrepareUnstake } from "../usecases/prepare-stake.usecase";
 import { executeGetPools, executeGetPoolDetail } from "../usecases/get-pools.usecase";
+import { executeCheckAllowance } from "../usecases/check-allowance.usecase";
+import { executePrepareApprove } from "../usecases/prepare-approve.usecase";
 
 export async function getQuote(req: Request, res: Response) {
   try {
@@ -33,11 +35,11 @@ export async function prepareSwap(req: Request, res: Response) {
 
 export async function prepareLiquidity(req: Request, res: Response) {
   try {
-    const { tokenA, tokenB, amountA, amountB, minLpAmount, stable, deadlineMinutes } = req.body;
+    const { tokenA, tokenB, amountA, amountB, slippageBps, stable, deadlineMinutes } = req.body;
     if (!tokenA || !tokenB || !amountA || !amountB) {
       return res.status(400).json({ error: "Missing required fields: tokenA, tokenB, amountA, amountB" });
     }
-    const tx = await executePrepareAddLiquidity({ tokenA, tokenB, amountA, amountB, minLpAmount, stable, deadlineMinutes });
+    const tx = await executePrepareAddLiquidity({ tokenA, tokenB, amountA, amountB, slippageBps, stable, deadlineMinutes });
     return res.json(tx);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -74,6 +76,32 @@ export async function getPools(_req: Request, res: Response) {
   try {
     const result = await executeGetPools();
     return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function checkAllowance(req: Request, res: Response) {
+  try {
+    const { token, owner, spender } = req.body;
+    if (!token || !owner || !spender) {
+      return res.status(400).json({ error: "Missing required fields: token, owner, spender" });
+    }
+    const result = await executeCheckAllowance({ token, owner, spender });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function prepareApprove(req: Request, res: Response) {
+  try {
+    const { token, spender, amount } = req.body;
+    if (!token || !spender || !amount) {
+      return res.status(400).json({ error: "Missing required fields: token, spender, amount" });
+    }
+    const tx = await executePrepareApprove({ token, spender, amount });
+    return res.json(tx);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

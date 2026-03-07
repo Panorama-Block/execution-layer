@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
 import { executionRoutes } from "./routes/execution.routes";
+import { stakingRoutes } from "./modules/liquid-staking/routes/staking.routes";
 
 dotenv.config();
 
@@ -14,6 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/execution", executionRoutes);
+app.use("/staking", stakingRoutes);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "execution-service", port: PORT });

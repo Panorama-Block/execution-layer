@@ -6,6 +6,8 @@ import swaggerUi from "swagger-ui-express";
 import swaggerDoc from "./docs/swagger.json";
 import { executionRoutes } from "./routes/execution.routes";
 import { stakingRoutes } from "./modules/liquid-staking/routes/staking.routes";
+import { swapRoutes } from "./modules/swap/routes/swap.routes";
+import { dcaRoutes } from "./modules/dca/routes/dca.routes";
 
 dotenv.config();
 
@@ -23,6 +25,8 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc, {
 
 app.use("/execution", executionRoutes);
 app.use("/staking", stakingRoutes);
+app.use("/swap", swapRoutes);
+app.use("/dca", dcaRoutes);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "execution-service", port: PORT });

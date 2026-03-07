@@ -13,6 +13,8 @@
   ],
   "tags": [
     { "name": "Health", "description": "Service health check" },
+    { "name": "DCA", "description": "Dollar-Cost Averaging — create/cancel orders, keeper endpoint" },
+    { "name": "Swap", "description": "Swap module — quote, prepare bundle (approve + swap), list pairs" },
     { "name": "Staking", "description": "Liquid Staking module — enter/exit positions, claim rewards" },
     { "name": "Execution", "description": "Core execution — swaps, approvals, allowances, pools, quotes" }
   ],
@@ -255,6 +257,295 @@
         }
       }
     },
+    "/dca/prepare-create": {
+      "post": {
+        "tags": ["DCA"],
+        "summary": "Prepare create DCA order",
+        "description": "Builds a TransactionBundle to create a DCA order: approve tokenIn (if needed) → createOrder on DCAVault. User deposits tokenIn into the vault; keeper will execute swaps at each interval.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PrepareCreateDCAOrderRequest" },
+              "example": {
+                "userAddress": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561",
+                "tokenIn": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tokenOut": "0x4200000000000000000000000000000000000006",
+                "amountPerSwap": "10000000",
+                "intervalSeconds": 86400,
+                "remainingSwaps": 30,
+                "stable": false,
+                "depositAmount": "300000000"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction bundle ready to sign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bundle": { "$ref": "#/components/schemas/TransactionBundle" },
+                    "metadata": { "$ref": "#/components/schemas/DCAOrderMetadata" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing required fields" },
+          "500": { "description": "Server error" }
+        }
+      }
+    },
+    "/dca/prepare-cancel": {
+      "post": {
+        "tags": ["DCA"],
+        "summary": "Prepare cancel DCA order",
+        "description": "Builds a TransactionBundle to cancel an order and optionally withdraw remaining balance.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["userAddress", "orderId"],
+                "properties": {
+                  "userAddress": { "type": "string" },
+                  "orderId": { "type": "integer" },
+                  "withdrawAfter": { "type": "boolean", "default": true, "description": "Include withdraw step after cancel" }
+                }
+              },
+              "example": {
+                "userAddress": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561",
+                "orderId": 0,
+                "withdrawAfter": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Cancel bundle ready to sign" },
+          "400": { "description": "Missing required fields" },
+          "500": { "description": "Order not found or not owned by user" }
+        }
+      }
+    },
+    "/dca/orders/{userAddress}": {
+      "get": {
+        "tags": ["DCA"],
+        "summary": "Get user DCA orders",
+        "description": "Returns all DCA orders for a given user address with on-chain state.",
+        "parameters": [
+          {
+            "name": "userAddress",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "example": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of DCA orders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "orders": { "type": "array", "items": { "$ref": "#/components/schemas/DCAOrderInfo" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dca/order/{orderId}": {
+      "get": {
+        "tags": ["DCA"],
+        "summary": "Get single DCA order",
+        "parameters": [
+          { "name": "orderId", "in": "path", "required": true, "schema": { "type": "integer" }, "example": 0 }
+        ],
+        "responses": {
+          "200": { "description": "Order data", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DCAOrderInfo" } } } },
+          "500": { "description": "Order not found" }
+        }
+      }
+    },
+    "/dca/executable": {
+      "get": {
+        "tags": ["DCA"],
+        "summary": "Get executable orders (keeper endpoint)",
+        "description": "Returns all orders currently ready to execute. Your keeper should poll this endpoint and call DCAVault.execute(orderId) for each result.",
+        "parameters": [
+          { "name": "upTo", "in": "query", "schema": { "type": "integer", "default": 100 }, "description": "Scan order IDs from 0 to upTo (exclusive)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Executable orders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "orders": { "type": "array", "items": { "$ref": "#/components/schemas/DCAOrderInfo" } },
+                    "checkedUpTo": { "type": "integer" },
+                    "timestamp": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swap/pairs": {
+      "get": {
+        "tags": ["Swap"],
+        "summary": "List available swap pairs",
+        "description": "Returns all enabled token pairs with on-chain pool address and reserves.",
+        "responses": {
+          "200": {
+            "description": "List of swap pairs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pairs": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/SwapPairInfo" }
+                    }
+                  }
+                },
+                "example": {
+                  "pairs": [{
+                    "id": "weth-usdc-volatile",
+                    "tokenIn": { "symbol": "WETH", "address": "0x4200000000000000000000000000000000000006", "decimals": 18 },
+                    "tokenOut": { "symbol": "USDC", "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "decimals": 6 },
+                    "stable": false,
+                    "poolAddress": "0xcDAC0d6c6C59727a65F871236188350531885C43",
+                    "reserve0": "12000000000000000000",
+                    "reserve1": "30000000000"
+                  }]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swap/quote": {
+      "post": {
+        "tags": ["Swap"],
+        "summary": "Get swap quote",
+        "description": "Returns estimated output amount, amountOutMin (with slippage) and exchange rate. Does not execute anything.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SwapQuoteRequest" },
+              "example": {
+                "tokenIn": "0x4200000000000000000000000000000000000006",
+                "tokenOut": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "amountIn": "10000000000000000",
+                "stable": false,
+                "slippageBps": 50
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Quote data",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SwapQuoteResponse" },
+                "example": {
+                  "tokenIn": "0x4200000000000000000000000000000000000006",
+                  "tokenOut": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                  "amountIn": "10000000000000000",
+                  "amountOut": "25123456",
+                  "amountOutMin": "25061169",
+                  "stable": false,
+                  "slippageBps": 50,
+                  "exchangeRate": "2512.34560000"
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing required fields" },
+          "500": { "description": "Server error" }
+        }
+      }
+    },
+    "/swap/prepare": {
+      "post": {
+        "tags": ["Swap"],
+        "summary": "Prepare swap bundle",
+        "description": "Builds a TransactionBundle to execute a swap: approve tokenIn (only if allowance is insufficient) → executeSwap via PanoramaExecutor. Returns ordered unsigned transactions for the frontend to sign.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PrepareSwapBundleRequest" },
+              "example": {
+                "userAddress": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561",
+                "tokenIn": "0x4200000000000000000000000000000000000006",
+                "tokenOut": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "amountIn": "10000000000000000",
+                "stable": false,
+                "slippageBps": 50,
+                "deadlineMinutes": 20
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction bundle ready to sign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bundle": { "$ref": "#/components/schemas/TransactionBundle" },
+                    "metadata": { "$ref": "#/components/schemas/SwapMetadata" }
+                  }
+                },
+                "example": {
+                  "bundle": {
+                    "steps": [
+                      { "to": "0x4200...", "data": "0x095ea7b3...", "value": "0", "chainId": 8453, "description": "Approve token for swap" },
+                      { "to": "0x79D671...", "data": "0x...", "value": "0", "chainId": 8453, "description": "Swap via Aerodrome" }
+                    ],
+                    "totalSteps": 2,
+                    "summary": "Swap via Aerodrome (volatile pool)"
+                  },
+                  "metadata": {
+                    "tokenIn": "0x4200000000000000000000000000000000000006",
+                    "tokenOut": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                    "amountIn": "10000000000000000",
+                    "amountOut": "25123456",
+                    "amountOutMin": "25061169",
+                    "stable": false,
+                    "slippageBps": 50,
+                    "priceImpact": "0.0124"
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing required fields" },
+          "500": { "description": "Server error" }
+        }
+      }
+    },
     "/execution/prepare-swap": {
       "post": {
         "tags": ["Execution"],
@@ -472,6 +763,114 @@
           "amountIn": { "type": "string" },
           "slippageBps": { "type": "integer", "default": 50 },
           "stable": { "type": "boolean", "default": false }
+        }
+      },
+      "SwapQuoteRequest": {
+        "type": "object",
+        "required": ["tokenIn", "tokenOut", "amountIn"],
+        "properties": {
+          "tokenIn": { "type": "string", "description": "Input token address" },
+          "tokenOut": { "type": "string", "description": "Output token address" },
+          "amountIn": { "type": "string", "description": "Amount in wei" },
+          "stable": { "type": "boolean", "default": false, "description": "Use stable pool" },
+          "slippageBps": { "type": "integer", "default": 50, "description": "Slippage in basis points (50 = 0.5%)" }
+        }
+      },
+      "SwapQuoteResponse": {
+        "type": "object",
+        "properties": {
+          "tokenIn": { "type": "string" },
+          "tokenOut": { "type": "string" },
+          "amountIn": { "type": "string" },
+          "amountOut": { "type": "string" },
+          "amountOutMin": { "type": "string", "description": "amountOut with slippage applied" },
+          "stable": { "type": "boolean" },
+          "slippageBps": { "type": "integer" },
+          "exchangeRate": { "type": "string", "description": "amountOut / amountIn" }
+        }
+      },
+      "PrepareSwapBundleRequest": {
+        "type": "object",
+        "required": ["userAddress", "tokenIn", "tokenOut", "amountIn"],
+        "properties": {
+          "userAddress": { "type": "string", "description": "User wallet address (for allowance check)" },
+          "tokenIn": { "type": "string" },
+          "tokenOut": { "type": "string" },
+          "amountIn": { "type": "string", "description": "Amount in wei" },
+          "stable": { "type": "boolean", "default": false },
+          "slippageBps": { "type": "integer", "default": 50 },
+          "deadlineMinutes": { "type": "integer", "default": 20 }
+        }
+      },
+      "SwapMetadata": {
+        "type": "object",
+        "properties": {
+          "tokenIn": { "type": "string" },
+          "tokenOut": { "type": "string" },
+          "amountIn": { "type": "string" },
+          "amountOut": { "type": "string" },
+          "amountOutMin": { "type": "string" },
+          "stable": { "type": "boolean" },
+          "slippageBps": { "type": "integer" },
+          "priceImpact": { "type": "string", "description": "Estimated price impact in %" }
+        }
+      },
+      "PrepareCreateDCAOrderRequest": {
+        "type": "object",
+        "required": ["userAddress", "tokenIn", "tokenOut", "amountPerSwap", "intervalSeconds", "depositAmount"],
+        "properties": {
+          "userAddress": { "type": "string" },
+          "tokenIn": { "type": "string", "description": "Token to sell" },
+          "tokenOut": { "type": "string", "description": "Token to buy" },
+          "amountPerSwap": { "type": "string", "description": "Amount of tokenIn per execution (wei)" },
+          "intervalSeconds": { "type": "integer", "description": "Seconds between executions (e.g. 86400 = daily)" },
+          "remainingSwaps": { "type": "integer", "default": 0, "description": "Max executions. 0 = unlimited" },
+          "stable": { "type": "boolean", "default": false },
+          "depositAmount": { "type": "string", "description": "Total tokenIn to deposit into vault (wei)" }
+        }
+      },
+      "DCAOrderMetadata": {
+        "type": "object",
+        "properties": {
+          "tokenIn": { "type": "string" },
+          "tokenOut": { "type": "string" },
+          "amountPerSwap": { "type": "string" },
+          "intervalSeconds": { "type": "integer" },
+          "remainingSwaps": { "type": "integer" },
+          "depositAmount": { "type": "string" },
+          "stable": { "type": "boolean" },
+          "estimatedExecutions": { "type": "integer" },
+          "dcaVaultAddress": { "type": "string" }
+        }
+      },
+      "DCAOrderInfo": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "integer" },
+          "owner": { "type": "string" },
+          "tokenIn": { "type": "string" },
+          "tokenOut": { "type": "string" },
+          "amountPerSwap": { "type": "string" },
+          "interval": { "type": "integer" },
+          "lastExecuted": { "type": "integer" },
+          "nextExecutionAt": { "type": "integer" },
+          "remainingSwaps": { "type": "integer" },
+          "balance": { "type": "string" },
+          "stable": { "type": "boolean" },
+          "active": { "type": "boolean" },
+          "executable": { "type": "boolean" }
+        }
+      },
+      "SwapPairInfo": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "tokenIn": { "$ref": "#/components/schemas/TokenInfo" },
+          "tokenOut": { "$ref": "#/components/schemas/TokenInfo" },
+          "stable": { "type": "boolean" },
+          "poolAddress": { "type": "string" },
+          "reserve0": { "type": "string" },
+          "reserve1": { "type": "string" }
         }
       }
     }

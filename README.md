@@ -42,13 +42,19 @@ Built for the **Base Hackathon 2026**.
 │                                                           │
 │  ┌─────────────────────────────────────────┐              │
 │  │          PanoramaExecutor (core)         │              │
-│  │    Routes calls to protocol adapters     │              │
+│  │  Registers adapter implementations      │              │
+│  │  Creates per-user clones (EIP-1167)     │              │
 │  └──────────────────┬──────────────────────┘              │
-│                     │ registerAdapter()                    │
+│                     │ registerAdapter() / clone per user   │
 │  ┌──────────────────▼──────────────────────┐              │
-│  │        AerodromeAdapter                  │              │
+│  │   AerodromeAdapter (implementation)      │              │
 │  │  swap / addLiquidity / removeLiquidity   │              │
-│  │  stake / unstake                         │              │
+│  │  stake / unstake / claimRewards          │              │
+│  └──────────────┬──────────────────────────┘              │
+│                 │ EIP-1167 minimal proxy clones            │
+│  ┌──────────────▼──────────────────────────┐              │
+│  │  User Clone A │ User Clone B │ Clone N  │              │
+│  │  (isolated)   │ (isolated)   │   ...    │              │
 │  └─────────────────────────────────────────┘              │
 │                                                           │
 │  ┌─────────────────────────────────────────┐              │
@@ -63,10 +69,18 @@ Built for the **Base Hackathon 2026**.
 2. Backend queries on-chain state (allowances, pool addresses, gauge addresses)
 3. Backend builds an ordered **TransactionBundle** (approve → addLiquidity → stake)
 4. Frontend receives the bundle, signs each transaction with MetaMask, and submits to Base
-5. **PanoramaExecutor** routes each call to the registered **AerodromeAdapter**
-6. Adapter interacts with Aerodrome contracts (Router, Factory, Gauge)
+5. **PanoramaExecutor** creates (or reuses) a **per-user adapter clone** via EIP-1167 minimal proxy
+6. The user's clone interacts with Aerodrome contracts (Router, Factory, Gauge) — positions are fully isolated
 
 The backend **never holds private keys**. It only prepares unsigned calldata.
+
+### Per-user adapter clones (EIP-1167)
+
+Each user gets their own adapter clone on first interaction (~45k gas, one-time). The clone is a minimal proxy that delegates all logic to the registered adapter implementation but has its own storage. This means:
+
+- **Isolated positions**: Each user's gauge deposits, LP tokens, and rewards are separate
+- **Deterministic addresses**: The backend can predict a user's clone address via `predictUserAdapter(protocolId, user)` without any on-chain state
+- **No shared accounting**: No need for per-user mappings or off-chain ledgers
 
 ---
 
@@ -74,12 +88,12 @@ The backend **never holds private keys**. It only prepares unsigned calldata.
 
 | Contract | Address |
 |---|---|
-| **PanoramaExecutor** | [`0x79D671250f75631ca199d0Fa22b0071052214172`](https://basescan.org/address/0x79D671250f75631ca199d0Fa22b0071052214172) |
-| **AerodromeAdapter** | [`0xf919A01510591f38407AA4BBE5711646DB6819e3`](https://basescan.org/address/0xf919A01510591f38407AA4BBE5711646DB6819e3) |
+| **PanoramaExecutor** | [`0x82b000512A19f7B762A23033aEA5AE00aBD0D2bC`](https://basescan.org/address/0x82b000512A19f7B762A23033aEA5AE00aBD0D2bC) |
+| **AerodromeAdapter** | [`0x187e499afB2DE75836800ad19147e0cFcd2Dc715`](https://basescan.org/address/0x187e499afB2DE75836800ad19147e0cFcd2Dc715) |
 | **DCAVault** | [`0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1`](https://basescan.org/address/0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1) |
 
-- **PanoramaExecutor** is the single entry point for swap, liquidity, and staking operations. Deploy once, use forever.
-- **AerodromeAdapter** handles swap, liquidity, and staking on Aerodrome Finance. Already deployed and registered.
+- **PanoramaExecutor** is the single entry point for swap, liquidity, and staking operations. Creates per-user adapter clones (EIP-1167) for position isolation.
+- **AerodromeAdapter** (implementation) handles swap, liquidity, staking, and reward claiming on Aerodrome Finance. Each user gets their own clone of this adapter.
 - **DCAVault** stores user DCA orders and deposits. A trusted keeper calls `execute(orderId)` at each interval to trigger swaps via PanoramaExecutor.
 
 ### When do I need a new adapter?
@@ -92,9 +106,10 @@ The backend **never holds private keys**. It only prepares unsigned calldata.
 | Lending (Aave/Compound) | **Yes** | New protocol = new adapter (e.g., `AaveLendingAdapter`) |
 | Swap (other DEX) | **Yes** | New protocol = new adapter (e.g., `UniswapAdapter`) |
 
-To register a new adapter:
+To register a new adapter implementation:
 ```solidity
-// Only the executor owner can register adapters
+// Only the executor owner can register adapter implementations
+// Users will automatically get their own EIP-1167 clone on first use
 executor.registerAdapter(keccak256("aave"), aaveLendingAdapterAddress);
 ```
 
@@ -215,8 +230,8 @@ The contracts are **already deployed**. Use these addresses in `backend/.env`:
 ```env
 PORT=3010
 BASE_RPC_URL=https://mainnet.base.org
-EXECUTOR_ADDRESS=0x79D671250f75631ca199d0Fa22b0071052214172
-AERODROME_ADAPTER_ADDRESS=0xf919A01510591f38407AA4BBE5711646DB6819e3
+EXECUTOR_ADDRESS=0x82b000512A19f7B762A23033aEA5AE00aBD0D2bC
+AERODROME_ADAPTER_ADDRESS=0x187e499afB2DE75836800ad19147e0cFcd2Dc715
 ```
 
 ### 3. Run the backend
@@ -461,6 +476,9 @@ interface IProtocolAdapter {
 
     function unstake(address lpToken, uint256 amount, bytes calldata extraData)
         external returns (bool);
+
+    function claimRewards(address lpToken, address recipient, bytes calldata extraData)
+        external returns (uint256 rewardAmount);
 }
 ```
 

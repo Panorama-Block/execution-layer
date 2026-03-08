@@ -43,7 +43,7 @@ export const STAKING_POOLS: StakingPoolConfig[] = [
     tokenB: { symbol: "AERO", address: "0x940181a94A35A4569E4529A3CDfB74e38FD98631", decimals: 18 },
     stable: false,
     rewardToken: { symbol: "AERO", address: "0x940181a94A35A4569E4529A3CDfB74e38FD98631", decimals: 18 },
-    enabled: true,
+    enabled: false,
   },
   {
     id: "usdc-usdbc-stable",
@@ -53,7 +53,7 @@ export const STAKING_POOLS: StakingPoolConfig[] = [
     tokenB: { symbol: "USDbC", address: "0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA", decimals: 6 },
     stable: true,
     rewardToken: { symbol: "AERO", address: "0x940181a94A35A4569E4529A3CDfB74e38FD98631", decimals: 18 },
-    enabled: true,
+    enabled: false,
   },
   {
     id: "weth-usdc-stable",
@@ -63,7 +63,7 @@ export const STAKING_POOLS: StakingPoolConfig[] = [
     tokenB: { symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 },
     stable: true,
     rewardToken: { symbol: "AERO", address: "0x940181a94A35A4569E4529A3CDfB74e38FD98631", decimals: 18 },
-    enabled: true,
+    enabled: false,
   },
 ];
 

@@ -4,7 +4,7 @@ import { getPoolAddress } from "../../../providers/aerodrome.provider";
 import { getGaugeForPool, getStakedBalance, getEarnedRewards } from "../../../providers/gauge.provider";
 import { getContract } from "../../../providers/chain.provider";
 import { ERC20_ABI, POOL_ABI } from "../../../utils/abi";
-import { getProtocolConfig } from "../../../config/protocols";
+import { getUserAdapterAddress } from "../../../config/protocols";
 
 interface PortfolioAsset {
   poolId: string;
@@ -23,18 +23,23 @@ export interface GetPortfolioResponse {
   walletBalances: Record<string, string>;
 }
 
+function withTimeout<T>(fn: () => Promise<T>, ms = 8000): Promise<T> {
+  return Promise.race([
+    fn(),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+  ]);
+}
+
 async function safeBigInt(fn: () => Promise<bigint>): Promise<bigint> {
-  try { return await fn(); } catch { return 0n; }
+  try { return await withTimeout(fn); } catch { return 0n; }
 }
 
 export async function executeGetPortfolio(userAddress: string): Promise<GetPortfolioResponse> {
   const enabledPools = getEnabledStakingPools();
-  const adapterAddress = getProtocolConfig("aerodrome").adapterAddress;
-  const assets: PortfolioAsset[] = [];
-
-  // Get wallet balances for common tokens
-  const tokens = ["WETH", "USDC", "AERO"];
   const { BASE_TOKENS } = await import("../../../config/protocols");
+
+  // Run wallet balances, adapter lookup, and pool resolution ALL in parallel
+  const tokens = ["WETH", "USDC", "AERO"];
   const walletBalances: Record<string, string> = {};
 
   const balancePromises = tokens.map(async (symbol) => {
@@ -42,41 +47,56 @@ export async function executeGetPortfolio(userAddress: string): Promise<GetPortf
     if (!token) return;
     try {
       const contract = getContract(token.address, ERC20_ABI, "base");
-      const bal: bigint = await contract.balanceOf(userAddress);
+      const bal: bigint = await withTimeout(() => contract.balanceOf(userAddress) as Promise<bigint>, 6000);
       walletBalances[symbol] = ethers.formatUnits(bal, token.decimals);
     } catch {
       walletBalances[symbol] = "0";
     }
   });
 
-  await Promise.all(balancePromises);
+  const adapterPromise = getUserAdapterAddress(userAddress, "aerodrome");
 
-  for (const pool of enabledPools) {
+  const poolDataPromises = enabledPools.map(async (pool) => {
     try {
-      const poolAddress = await getPoolAddress(pool.tokenA.address, pool.tokenB.address, pool.stable);
-      if (poolAddress === ethers.ZeroAddress) continue;
+      const poolAddress = await withTimeout(() => getPoolAddress(pool.tokenA.address, pool.tokenB.address, pool.stable));
+      if (poolAddress === ethers.ZeroAddress) return null;
+      const gaugeAddress = await withTimeout(() => getGaugeForPool(poolAddress));
+      if (gaugeAddress === ethers.ZeroAddress) return null;
+      return { pool, poolAddress, gaugeAddress };
+    } catch {
+      return null;
+    }
+  });
 
-      const gaugeAddress = await getGaugeForPool(poolAddress);
-      if (gaugeAddress === ethers.ZeroAddress) continue;
+  const [, userAdapter, poolResults] = await Promise.all([
+    Promise.all(balancePromises),
+    adapterPromise,
+    Promise.all(poolDataPromises),
+  ]);
 
-      const [adapterStaked, adapterEarned, userStaked, userEarned] = await Promise.all([
-        adapterAddress ? safeBigInt(() => getStakedBalance(gaugeAddress, adapterAddress)) : Promise.resolve(0n),
-        adapterAddress ? safeBigInt(() => getEarnedRewards(gaugeAddress, adapterAddress)) : Promise.resolve(0n),
-        safeBigInt(() => getStakedBalance(gaugeAddress, userAddress)),
-        safeBigInt(() => getEarnedRewards(gaugeAddress, userAddress)),
-      ]);
+  console.log(`[PORTFOLIO] user=${userAddress}, adapter=${userAdapter}, resolvedPools=${poolResults.filter(Boolean).length}`);
 
-      const totalStaked = adapterStaked + userStaked;
-      const totalEarned = adapterEarned + userEarned;
+  // Now fetch staking positions for resolved pools (in parallel)
+  const assets: PortfolioAsset[] = [];
+  const positionPromises = poolResults.filter(Boolean).map(async (result) => {
+    const { pool, poolAddress, gaugeAddress } = result!;
+    try {
+      const totalStaked = userAdapter
+        ? await safeBigInt(() => getStakedBalance(gaugeAddress, userAdapter))
+        : 0n;
+      const totalEarned = userAdapter
+        ? await safeBigInt(() => getEarnedRewards(gaugeAddress, userAdapter))
+        : 0n;
+
+      console.log(`[PORTFOLIO] ${pool.name}: staked=${totalStaked}, earned=${totalEarned}`);
 
       if (totalStaked > 0n) {
-        // Estimate underlying token balances from LP (simplified — 50/50 split for volatile)
         const poolContract = getContract(poolAddress, POOL_ABI, "base");
         let reserveA = 0n, reserveB = 0n, totalSupply = 0n;
         try {
-          [reserveA, reserveB] = await poolContract.getReserves();
+          [reserveA, reserveB] = await withTimeout(() => poolContract.getReserves() as Promise<[bigint, bigint]>);
           const lpToken = getContract(poolAddress, ERC20_ABI, "base");
-          totalSupply = await lpToken.totalSupply() as bigint;
+          totalSupply = await withTimeout(() => lpToken.totalSupply() as Promise<bigint>);
         } catch { /* skip reserve calc */ }
 
         let balA = "0", balB = "0";
@@ -98,7 +118,9 @@ export async function executeGetPortfolio(userAddress: string): Promise<GetPortf
     } catch {
       // Skip failed pools
     }
-  }
+  });
+
+  await Promise.all(positionPromises);
 
   return {
     userAddress,

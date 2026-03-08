@@ -1,12 +1,17 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../config/chains";
 
+const baseNetwork = ethers.Network.from(8453);
 const providers: Record<string, ethers.JsonRpcProvider> = {};
 
 export function getProvider(chain: string): ethers.JsonRpcProvider {
   if (!providers[chain]) {
     const config = getChainConfig(chain);
-    providers[chain] = new ethers.JsonRpcProvider(config.rpcUrl);
+    if (chain === "base") {
+      providers[chain] = new ethers.JsonRpcProvider(config.rpcUrl, baseNetwork, { staticNetwork: baseNetwork });
+    } else {
+      providers[chain] = new ethers.JsonRpcProvider(config.rpcUrl);
+    }
   }
   return providers[chain];
 }

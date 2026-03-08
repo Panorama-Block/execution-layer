@@ -91,4 +91,15 @@ interface IProtocolAdapter {
         uint256 amount,
         bytes calldata extraData
     ) external returns (bool success);
+
+    /// @notice Claim pending rewards from a gauge/farm and forward to recipient.
+    /// @param lpToken Address of the LP token (used to resolve gauge).
+    /// @param recipient Address to receive the reward tokens.
+    /// @param extraData Protocol-specific encoded data (e.g., gauge address).
+    /// @return rewardAmount Amount of reward tokens claimed.
+    function claimRewards(
+        address lpToken,
+        address recipient,
+        bytes calldata extraData
+    ) external returns (uint256 rewardAmount);
 }

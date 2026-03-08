@@ -178,6 +178,30 @@ contract AerodromeAdapter is IProtocolAdapter {
         return true;
     }
 
+    // ========== CLAIM REWARDS ==========
+
+    /**
+     * @notice Claim pending AERO rewards from a gauge and forward to recipient.
+     * @dev The adapter is the depositor in the gauge, so only it can claim.
+     */
+    function claimRewards(address lpToken, address recipient, bytes calldata extraData)
+        external
+        onlyExecutor
+        returns (uint256 rewardAmount)
+    {
+        address gauge = _resolveGauge(lpToken, extraData);
+        address rewardToken = IAerodromeGauge(gauge).rewardToken();
+
+        uint256 balBefore = IERC20(rewardToken).balanceOf(address(this));
+        IAerodromeGauge(gauge).getReward(address(this));
+        uint256 balAfter = IERC20(rewardToken).balanceOf(address(this));
+
+        rewardAmount = balAfter - balBefore;
+        if (rewardAmount > 0) {
+            rewardToken.safeTransfer(recipient, rewardAmount);
+        }
+    }
+
     // ========== INTERNAL ==========
 
     function _approveRouter(address token, uint256 amount) internal {

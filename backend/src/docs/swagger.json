@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "PanoramaBlock Execution Layer API",
-    "description": "On-chain DeFi execution backend for Base. Prepares unsigned transaction bundles for swap, liquidity, and staking operations via Aerodrome Finance.\n\nContracts deployed on Base Mainnet:\n- **PanoramaExecutor**: `0x79D671250f75631ca199d0Fa22b0071052214172`\n- **AerodromeAdapter**: `0xf919A01510591f38407AA4BBE5711646DB6819e3`",
+    "description": "On-chain DeFi execution backend for Base. Prepares unsigned transaction bundles for swap, liquidity, and staking operations via Aerodrome Finance.\n\nContracts deployed on Base Mainnet:\n- **PanoramaExecutor**: `0x82b000512A19f7B762A23033aEA5AE00aBD0D2bC`\n- **AerodromeAdapter**: `0x187e499afB2DE75836800ad19147e0cFcd2Dc715`",
     "version": "1.0.0",
     "contact": {
       "name": "PanoramaBlock"

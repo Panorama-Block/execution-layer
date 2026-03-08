@@ -4,7 +4,11 @@ export const PANORAMA_EXECUTOR_ABI = [
   "function executeRemoveLiquidity(bytes32 protocolId, address tokenA, address tokenB, bool stable, uint256 liquidity, uint256 amountAMin, uint256 amountBMin, bytes calldata extraData, uint256 deadline) external returns (uint256 amountA, uint256 amountB)",
   "function executeStake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData) external",
   "function executeUnstake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData) external",
-  "function adapters(bytes32) external view returns (address)",
+  "function executeClaimRewards(bytes32 protocolId, address lpToken, bytes calldata extraData) external returns (uint256 rewardAmount)",
+  "function adapterImplementations(bytes32) external view returns (address)",
+  "function getUserAdapter(bytes32 protocolId, address user) external view returns (address)",
+  "function predictUserAdapter(bytes32 protocolId, address user) external view returns (address)",
+  "function userAdapters(bytes32, address) external view returns (address)",
 ] as const;
 
 export const AERODROME_ROUTER_ABI = [

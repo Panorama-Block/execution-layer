@@ -13,7 +13,7 @@ import {DCAVault} from "../contracts/core/DCAVault.sol";
  */
 contract DeployDCAVault is Script {
     // PanoramaExecutor already deployed on Base mainnet
-    address constant EXECUTOR = 0x79D671250f75631ca199d0Fa22b0071052214172;
+    address constant EXECUTOR = 0x82b000512A19f7B762A23033aEA5AE00aBD0D2bC;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");

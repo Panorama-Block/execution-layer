@@ -22,6 +22,45 @@ export const BASE_TOKENS: Record<string, { address: string; decimals: number }> 
   DAI: { address: "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb", decimals: 18 },
 };
 
+/**
+ * Get the predicted per-user adapter clone address.
+ * Uses the executor's predictUserAdapter() to compute the deterministic clone address.
+ * Results are cached since the prediction is deterministic (same input → same output).
+ */
+const adapterCache = new Map<string, string>();
+
+export async function getUserAdapterAddress(userAddress: string, protocolId: string): Promise<string> {
+  const cacheKey = `${protocolId}:${userAddress.toLowerCase()}`;
+  const cached = adapterCache.get(cacheKey);
+  if (cached) return cached;
+
+  const { getContract } = await import("../providers/chain.provider");
+  const { PANORAMA_EXECUTOR_ABI } = await import("../utils/abi");
+  const { getChainConfig } = await import("./chains");
+  const { encodeProtocolId } = await import("../utils/encoding");
+
+  const chain = getChainConfig("base");
+  const executor = getContract(chain.contracts.panoramaExecutor, PANORAMA_EXECUTOR_ABI, "base");
+  const protoBytes32 = encodeProtocolId(protocolId);
+
+  // Retry up to 3 times — public Base RPC is flaky
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const predicted: string = await executor.predictUserAdapter(protoBytes32, userAddress);
+      if (predicted) {
+        adapterCache.set(cacheKey, predicted);
+      }
+      return predicted;
+    } catch (err) {
+      console.warn(`[getUserAdapterAddress] attempt ${attempt + 1} failed:`, err instanceof Error ? err.message : err);
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      }
+    }
+  }
+  return "";
+}
+
 export function getProtocolConfig(protocolId: string): ProtocolConfig {
   if (protocolId === "aerodrome") {
     return {

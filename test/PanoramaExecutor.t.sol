@@ -48,7 +48,7 @@ contract PanoramaExecutorTest is Test {
     // ========== ADMIN TESTS ==========
 
     function test_RegisterAdapter() public view {
-        assertEq(executor.adapters(AERODROME_ID), address(adapter));
+        assertEq(executor.adapterImplementations(AERODROME_ID), address(adapter));
     }
 
     function test_RegisterAdapter_OnlyOwner() public {
@@ -64,7 +64,7 @@ contract PanoramaExecutorTest is Test {
 
     function test_RemoveAdapter() public {
         executor.removeAdapter(AERODROME_ID);
-        assertEq(executor.adapters(AERODROME_ID), address(0));
+        assertEq(executor.adapterImplementations(AERODROME_ID), address(0));
     }
 
     function test_TransferOwnership() public {

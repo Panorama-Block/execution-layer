@@ -38,6 +38,7 @@
     .badge-volatile { background: #2a2a1a; color: #facc15; }
     .badge-stable { background: #1a2a3a; color: #60a5fa; }
     .badge-inactive { background: #2a1a1a; color: #f87171; }
+    .badge-apr { background: #1a2a2a; color: #2dd4bf; font-size: 12px; padding: 2px 10px; }
     .form-group { margin-bottom: 12px; }
     .form-group label { display: block; font-size: 13px; color: #888; margin-bottom: 4px; }
     .form-group input, .form-group select { width: 100%; background: #1a1b26; border: 1px solid #2a2b36; color: #e1e1e6; padding: 10px 12px; border-radius: 8px; font-size: 14px; outline: none; }
@@ -71,6 +72,27 @@
     .order-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .cancel-btn { background: #2a1a1a; border: 1px solid #dc2626; color: #f87171; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
     .cancel-btn:hover { background: #3a1a1a; }
+
+    /* Portfolio */
+    .wallet-balances { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .balance-chip { background: #1a1b26; border: 1px solid #2a2b36; border-radius: 8px; padding: 10px 16px; min-width: 120px; }
+    .balance-chip .token-sym { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+    .balance-chip .token-bal { font-size: 18px; font-weight: 700; color: #e1e1e6; margin-top: 2px; }
+    .portfolio-asset { background: #1a1b26; border: 1px solid #2a2b36; border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+    .portfolio-asset .pool-name { margin-bottom: 8px; }
+    .asset-row { display: flex; justify-content: space-between; font-size: 13px; color: #888; margin-bottom: 3px; }
+    .asset-val { color: #e1e1e6; font-weight: 600; }
+
+    /* History */
+    .history-item { background: #1a1b26; border: 1px solid #2a2b36; border-radius: 8px; padding: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+    .history-left { flex: 1; }
+    .history-action { font-weight: 600; font-size: 14px; }
+    .history-hash { font-size: 12px; color: #a855f7; }
+    .history-time { font-size: 11px; color: #555; }
+    .history-status { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 6px; }
+    .status-pending { background: #2a2a1a; color: #facc15; }
+    .status-confirmed { background: #1a3a2a; color: #4ade80; }
+    .status-failed { background: #2a1a1a; color: #f87171; }
   </style>
 </head>
 <body>
@@ -92,6 +114,8 @@
       <button class="tab active" onclick="switchTab(event,'staking')">Liquid Staking</button>
       <button class="tab" onclick="switchTab(event,'swap')">Swap</button>
       <button class="tab" onclick="switchTab(event,'dca')">DCA</button>
+      <button class="tab" onclick="switchTab(event,'portfolio')">Portfolio</button>
+      <button class="tab" onclick="switchTab(event,'history')">History</button>
     </div>
 
     <!-- ===== STAKING TAB ===== -->
@@ -99,11 +123,17 @@
       <div class="grid">
         <div>
           <div class="card">
-            <h2>Available Pools</h2>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+              <h2 style="margin:0">Available Pools</h2>
+              <button class="btn btn-secondary" style="width:auto;padding:6px 14px;margin:0;font-size:12px" onclick="refreshAll()">Refresh</button>
+            </div>
             <div id="poolsList"><div class="empty-state">Loading pools...</div></div>
           </div>
           <div class="card">
-            <h2>Your Positions</h2>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+              <h2 style="margin:0">Your Positions</h2>
+              <button class="btn btn-secondary" style="width:auto;padding:6px 14px;margin:0;font-size:12px" onclick="ensureConnected().then(()=>loadPositions())">Refresh</button>
+            </div>
             <div id="positionsList"><div class="empty-state">Connect wallet to view positions</div></div>
           </div>
         </div>
@@ -221,7 +251,7 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Total Swaps (0 = ∞)</label>
+                <label>Total Swaps (0 = unlimited)</label>
                 <input id="dcaSwaps" type="text" value="30" />
               </div>
             </div>
@@ -232,6 +262,34 @@
             <button class="btn btn-primary" id="dcaCreateBtn" onclick="createDcaOrder()" disabled>Create Order</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ===== PORTFOLIO TAB ===== -->
+    <div id="tab-portfolio" class="tab-content">
+      <div class="card">
+        <h2>Wallet Balances</h2>
+        <div id="walletBalances"><div class="empty-state">Connect wallet to view portfolio</div></div>
+      </div>
+      <div class="card">
+        <h2>Staking Positions (detailed)</h2>
+        <div id="portfolioAssets"><div class="empty-state">Connect wallet to view assets</div></div>
+      </div>
+      <div class="card">
+        <h2>Protocol Info</h2>
+        <div id="protocolInfo"><div class="empty-state">Loading protocol info...</div></div>
+      </div>
+    </div>
+
+    <!-- ===== HISTORY TAB ===== -->
+    <div id="tab-history" class="tab-content">
+      <div class="card">
+        <h2>Transaction History</h2>
+        <div class="form-row" style="margin-bottom:16px">
+          <button class="btn btn-secondary" onclick="loadAllHistory()" style="margin:0">Refresh</button>
+          <div></div>
+        </div>
+        <div id="historyList"><div class="empty-state">Connect wallet to view history</div></div>
       </div>
     </div>
 
@@ -250,6 +308,7 @@ const BASESCAN = "https://basescan.org/tx/";
 const BASE_CHAIN_ID = "0x2105";
 
 let provider = null, signer = null, userAddress = null, pools = [], connecting = false;
+let protocolInfoCache = null;
 
 // ========== TABS ==========
 
@@ -260,6 +319,9 @@ function switchTab(e, name) {
   e.target.classList.add('active');
   if (name === 'swap') loadSwapPairs();
   if (name === 'dca' && userAddress) loadDcaOrders();
+  if (name === 'portfolio' && userAddress) loadPortfolio();
+  if (name === 'portfolio') loadProtocolInfo();
+  if (name === 'history' && userAddress) loadAllHistory();
 }
 
 // ========== LOGGING ==========
@@ -282,10 +344,9 @@ function logTx(hash, description) {
 
 async function connectWallet() {
   if (!window.ethereum) return log("MetaMask not found.", "error");
-  if (connecting || userAddress) return;
+  if (connecting) return;
   connecting = true;
   try {
-    log("Connecting wallet...");
     provider = new ethers.BrowserProvider(window.ethereum);
     await provider.send("eth_requestAccounts", []);
     try {
@@ -294,13 +355,17 @@ async function connectWallet() {
       if (e.code === 4902) await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: BASE_CHAIN_ID, chainName: "Base", rpcUrls: ["https://mainnet.base.org"], nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, blockExplorerUrls: ["https://basescan.org"] }] });
     }
     signer = await provider.getSigner();
-    userAddress = await signer.getAddress();
+    const addr = await signer.getAddress();
+    const isReconnect = userAddress === addr;
+    userAddress = addr;
     const bal = ethers.formatEther(await provider.getBalance(userAddress));
     const btn = document.getElementById("connectBtn");
     btn.textContent = `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`;
     btn.classList.add("connected");
-    log(`Connected: ${userAddress}`, "success");
-    log(`Balance: ${parseFloat(bal).toFixed(6)} ETH on Base`, "info");
+    if (!isReconnect) {
+      log(`Connected: ${userAddress}`, "success");
+      log(`Balance: ${parseFloat(bal).toFixed(6)} ETH on Base`, "info");
+    }
     ["enterBtn", "exitBtn", "claimBtn", "swapBtn", "dcaCreateBtn"].forEach(id => document.getElementById(id).disabled = false);
     loadPositions();
     loadDcaOrders();
@@ -311,9 +376,30 @@ async function connectWallet() {
   }
 }
 
+async function ensureConnected() {
+  if (userAddress) return true;
+  await connectWallet();
+  return !!userAddress;
+}
+
+// ========== TRANSACTION TRACKING ==========
+
+async function trackTx(txHash, module, action) {
+  if (!userAddress) return;
+  try {
+    await fetch(`${API}/${module}/transaction/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ txHash, userAddress, action }),
+    });
+  } catch {
+    // Non-critical — tracking is best-effort
+  }
+}
+
 // ========== EXECUTE BUNDLE ==========
 
-async function executeTxBundle(bundle) {
+async function executeTxBundle(bundle, module = "staking") {
   log(`Executing bundle: ${bundle.summary} (${bundle.totalSteps} steps)`, "info");
   for (let i = 0; i < bundle.steps.length; i++) {
     const step = bundle.steps[i];
@@ -321,6 +407,7 @@ async function executeTxBundle(bundle) {
     try {
       const tx = await signer.sendTransaction({ to: step.to, data: step.data, value: step.value || "0" });
       logTx(tx.hash, `Step ${i+1} submitted`);
+      trackTx(tx.hash, module, step.description || bundle.summary);
       log(`Waiting for confirmation... <span class="spinner"></span>`, "warn");
       const receipt = await tx.wait();
       if (receipt.status === 1) {
@@ -342,28 +429,49 @@ async function executeTxBundle(bundle) {
 
 // ========== STAKING ==========
 
+function renderPools(aprMap = {}) {
+  const list = document.getElementById("poolsList");
+  const enterSelect = document.getElementById("enterPool");
+  const exitSelect = document.getElementById("exitPool");
+  if (pools.length === 0) { list.innerHTML = '<div class="empty-state">No pools available</div>'; return; }
+  list.innerHTML = ""; enterSelect.innerHTML = ""; exitSelect.innerHTML = "";
+  pools.forEach(p => {
+    const typeBadge = p.stable ? '<span class="badge badge-stable">Stable</span>' : '<span class="badge badge-volatile">Volatile</span>';
+    const aliveBadge = p.gaugeAlive ? '<span class="badge badge-active">Active</span>' : '';
+    const apr = aprMap[p.id];
+    const aprBadge = apr ? `<span class="badge badge-apr">APR ${apr}</span>` : '';
+    list.innerHTML += `<div class="pool-item"><div class="pool-name">${p.name} ${typeBadge} ${aliveBadge} ${aprBadge}</div><div class="pool-detail">Pool: <a href="https://basescan.org/address/${p.poolAddress}" target="_blank">${p.poolAddress.slice(0,10)}...${p.poolAddress.slice(-8)}</a></div><div class="pool-detail">Gauge: <a href="https://basescan.org/address/${p.gaugeAddress}" target="_blank">${p.gaugeAddress.slice(0,10)}...${p.gaugeAddress.slice(-8)}</a></div><div class="pool-detail">Total Staked: ${parseFloat(ethers.formatEther(p.totalStaked)).toFixed(4)} LP | Reward: ${parseFloat(ethers.formatEther(p.rewardRate)).toFixed(6)} AERO/s</div></div>`;
+    [enterSelect, exitSelect].forEach(sel => { const o = document.createElement("option"); o.value = p.id; o.textContent = p.name; sel.appendChild(o); });
+  });
+}
+
 async function loadPools() {
   try {
     const res = await fetch(`${API}/staking/pools`);
     const data = await res.json();
     pools = data.pools || [];
-    const list = document.getElementById("poolsList");
-    const enterSelect = document.getElementById("enterPool");
-    const exitSelect = document.getElementById("exitPool");
-    if (pools.length === 0) { list.innerHTML = '<div class="empty-state">No pools available</div>'; return; }
-    list.innerHTML = ""; enterSelect.innerHTML = ""; exitSelect.innerHTML = "";
-    pools.forEach(p => {
-      const typeBadge = p.stable ? '<span class="badge badge-stable">Stable</span>' : '<span class="badge badge-volatile">Volatile</span>';
-      const aliveBadge = p.gaugeAlive ? '<span class="badge badge-active">Active</span>' : '';
-      list.innerHTML += `<div class="pool-item"><div class="pool-name">${p.name} ${typeBadge} ${aliveBadge}</div><div class="pool-detail">Pool: <a href="https://basescan.org/address/${p.poolAddress}" target="_blank">${p.poolAddress.slice(0,10)}...${p.poolAddress.slice(-8)}</a></div><div class="pool-detail">Gauge: <a href="https://basescan.org/address/${p.gaugeAddress}" target="_blank">${p.gaugeAddress.slice(0,10)}...${p.gaugeAddress.slice(-8)}</a></div><div class="pool-detail">Total Staked: ${parseFloat(ethers.formatEther(p.totalStaked)).toFixed(4)} LP | Reward: ${parseFloat(ethers.formatEther(p.rewardRate)).toFixed(6)} AERO/s</div></div>`;
-      [enterSelect, exitSelect].forEach(sel => { const o = document.createElement("option"); o.value = p.id; o.textContent = p.name; sel.appendChild(o); });
-    });
+    renderPools();
     log(`Loaded ${pools.length} pool(s)`, "success");
+
+    // Load APR in background — re-render pools when ready
+    fetch(`${API}/staking/protocol-info`)
+      .then(r => r.ok ? r.json() : null)
+      .then(infoData => {
+        if (!infoData) return;
+        protocolInfoCache = infoData;
+        const aprMap = {};
+        (infoData.pools || []).forEach(p => { aprMap[p.poolId] = p.estimatedAPR; });
+        renderPools(aprMap);
+      })
+      .catch(() => {});
   } catch (err) { log(`Failed to load pools: ${err.message}`, "error"); }
 }
 
 async function loadPositions() {
-  if (!userAddress) return;
+  if (!userAddress) {
+    document.getElementById("positionsList").innerHTML = '<div class="empty-state">Connect wallet to view positions</div>';
+    return;
+  }
   try {
     const res = await fetch(`${API}/staking/position/${userAddress}`);
     const data = await res.json();
@@ -395,9 +503,9 @@ async function enterStrategy() {
   try {
     const res = await fetch(`${API}/staking/prepare-enter`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userAddress, poolId, amountA, amountB, slippageBps: parseInt(slippageBps), deadlineMinutes: 20 }) });
     const data = await res.json();
-    if (data.error) return log(`Backend error: ${data.error}`, "error");
+    if (data.error) return log(`Backend error: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
     log(`Bundle: ${data.bundle.totalSteps} steps | Pool: ${data.metadata.poolAddress}`, "success");
-    const success = await executeTxBundle(data.bundle);
+    const success = await executeTxBundle(data.bundle, "staking");
     if (success) { log("Position entered!", "success"); loadPositions(); }
   } catch (err) { log(`Failed: ${err.message}`, "error"); }
   finally { btn.disabled = false; btn.textContent = "Enter Strategy"; }
@@ -411,9 +519,9 @@ async function exitStrategy() {
   try {
     const res = await fetch(`${API}/staking/prepare-exit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userAddress, poolId, deadlineMinutes: 20 }) });
     const data = await res.json();
-    if (data.error) return log(`Backend error: ${data.error}`, "error");
+    if (data.error) return log(`Backend error: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
     log(`Exit bundle: ${data.bundle.totalSteps} steps | LP: ${ethers.formatEther(data.metadata.lpAmount)}`, "success");
-    const success = await executeTxBundle(data.bundle);
+    const success = await executeTxBundle(data.bundle, "staking");
     if (success) { log("Position exited!", "success"); loadPositions(); }
   } catch (err) { log(`Failed: ${err.message}`, "error"); }
   finally { btn.disabled = false; btn.textContent = "Exit Full Position"; }
@@ -427,11 +535,12 @@ async function claimRewards() {
   try {
     const res = await fetch(`${API}/staking/prepare-claim`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userAddress, poolId }) });
     const data = await res.json();
-    if (data.error) return log(`Backend error: ${data.error}`, "error");
+    if (data.error) return log(`Backend error: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
     const earned = ethers.formatUnits(data.metadata.earnedRewards, data.metadata.rewardToken.decimals);
     log(`Claimable: ${earned} ${data.metadata.rewardToken.symbol}`, "success");
     const tx = await signer.sendTransaction({ to: data.transaction.to, data: data.transaction.data, value: data.transaction.value || "0" });
     logTx(tx.hash, "Claim submitted");
+    trackTx(tx.hash, "staking", "claim-rewards");
     const receipt = await tx.wait();
     if (receipt.status === 1) { log("Rewards claimed!", "success"); logTx(tx.hash, "CLAIMED"); loadPositions(); }
     else log("Claim reverted", "error");
@@ -467,7 +576,6 @@ async function loadSwapPairs() {
 function onSwapPairSelect() {
   const val = document.getElementById("swapPairSelect").value;
   if (!val) return;
-  // format: "symbolIn|symbolOut|addrIn|addrOut|decimals|stable"
   const [, , addrIn, addrOut, decimals, stable] = val.split("|");
   document.getElementById("swapTokenIn").value = addrIn;
   document.getElementById("swapTokenOut").value = addrOut;
@@ -509,7 +617,7 @@ async function getSwapQuote() {
     log("Getting quote...", "info");
     const res = await fetch(`${API}/swap/quote`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tokenIn, tokenOut, amountIn, stable, slippageBps }) });
     const data = await res.json();
-    if (data.error) return log(`Quote error: ${data.error}`, "error");
+    if (data.error) return log(`Quote error: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
     document.getElementById("qAmountOut").textContent = data.amountOut;
     document.getElementById("qAmountOutMin").textContent = data.amountOutMin;
     document.getElementById("qRate").textContent = data.exchangeRate;
@@ -534,9 +642,9 @@ async function executeSwap() {
     log(`Preparing swap...`, "info");
     const res = await fetch(`${API}/swap/prepare`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userAddress, tokenIn, tokenOut, amountIn, stable, slippageBps, deadlineMinutes: 20 }) });
     const data = await res.json();
-    if (data.error) return log(`Backend error: ${data.error}`, "error");
+    if (data.error) return log(`Backend error: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
     log(`Bundle: ${data.bundle.totalSteps} step(s) | min out: ${data.metadata.amountOutMin}`, "success");
-    const success = await executeTxBundle(data.bundle);
+    const success = await executeTxBundle(data.bundle, "swap");
     if (success) log("Swap complete!", "success");
   } catch (err) { log(`Swap failed: ${err.message}`, "error"); }
   finally { btn.disabled = false; btn.textContent = "Execute Swap"; }
@@ -591,9 +699,9 @@ async function createDcaOrder() {
     log(`Preparing DCA order...`, "info");
     const res = await fetch(`${API}/dca/prepare-create`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userAddress, tokenIn, tokenOut, amountPerSwap, intervalSeconds, remainingSwaps, stable, depositAmount }) });
     const data = await res.json();
-    if (data.error) return log(`Backend error: ${data.error}`, "error");
+    if (data.error) return log(`Backend error: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
     log(`Bundle: ${data.bundle.totalSteps} step(s) | Est. executions: ${data.metadata.estimatedExecutions}`, "success");
-    const success = await executeTxBundle(data.bundle);
+    const success = await executeTxBundle(data.bundle, "dca");
     if (success) { log("DCA order created!", "success"); loadDcaOrders(); }
   } catch (err) { log(`DCA create failed: ${err.message}`, "error"); }
   finally { btn.disabled = false; btn.textContent = "Create Order"; }
@@ -605,18 +713,142 @@ async function cancelDcaOrder(orderId) {
   try {
     const res = await fetch(`${API}/dca/prepare-cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userAddress, orderId, withdrawAfter: true }) });
     const data = await res.json();
-    if (data.error) return log(`Backend error: ${data.error}`, "error");
-    const success = await executeTxBundle(data.bundle);
+    if (data.error) return log(`Backend error: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
+    const success = await executeTxBundle(data.bundle, "dca");
     if (success) { log(`Order #${orderId} cancelled!`, "success"); loadDcaOrders(); }
   } catch (err) { log(`Cancel failed: ${err.message}`, "error"); }
 }
 
+// ========== PORTFOLIO ==========
+
+async function loadPortfolio() {
+  if (!userAddress) return;
+  try {
+    log("Loading portfolio...", "info");
+    const res = await fetch(`${API}/staking/portfolio/${userAddress}`);
+    const data = await res.json();
+
+    // Wallet balances
+    const balDiv = document.getElementById("walletBalances");
+    const balances = data.walletBalances || {};
+    const tokens = Object.keys(balances);
+    if (tokens.length === 0) {
+      balDiv.innerHTML = '<div class="empty-state">No token balances found</div>';
+    } else {
+      balDiv.innerHTML = '<div class="wallet-balances">' + tokens.map(sym => {
+        const val = parseFloat(balances[sym]);
+        return `<div class="balance-chip"><div class="token-sym">${sym}</div><div class="token-bal">${val < 0.0001 && val > 0 ? val.toExponential(2) : val.toFixed(4)}</div></div>`;
+      }).join('') + '</div>';
+    }
+
+    // Assets
+    const assetsDiv = document.getElementById("portfolioAssets");
+    const assets = data.assets || [];
+    if (assets.length === 0) {
+      assetsDiv.innerHTML = '<div class="empty-state">No active staking positions</div>';
+    } else {
+      assetsDiv.innerHTML = assets.map(a => `
+        <div class="portfolio-asset">
+          <div class="pool-name">${a.poolName}</div>
+          <div class="asset-row"><span>${a.tokenA.symbol}</span><span class="asset-val">${parseFloat(a.tokenA.balance).toFixed(6)}</span></div>
+          <div class="asset-row"><span>${a.tokenB.symbol}</span><span class="asset-val">${parseFloat(a.tokenB.balance).toFixed(6)}</span></div>
+          <div class="asset-row"><span>LP Staked</span><span class="asset-val">${parseFloat(ethers.formatEther(a.lpStaked)).toFixed(6)}</span></div>
+          <div class="asset-row"><span>Pending ${a.rewardTokenSymbol}</span><span class="asset-val" style="color:#facc15">${parseFloat(a.pendingRewards).toFixed(6)}</span></div>
+        </div>
+      `).join('');
+    }
+
+    log(`Portfolio loaded: ${data.totalPositions} position(s)`, "success");
+  } catch (err) { log(`Failed to load portfolio: ${err.message}`, "error"); }
+}
+
+async function loadProtocolInfo() {
+  try {
+    const res = await fetch(`${API}/staking/protocol-info`);
+    const data = await res.json();
+    protocolInfoCache = data;
+    const div = document.getElementById("protocolInfo");
+    const pools = data.pools || [];
+    if (pools.length === 0) {
+      div.innerHTML = '<div class="empty-state">No protocol info available</div>';
+      return;
+    }
+    div.innerHTML = `
+      <div class="pool-detail" style="margin-bottom:12px"><strong>${data.protocol}</strong> on ${data.chain} — Updated: ${new Date(data.updatedAt).toLocaleTimeString()}</div>
+      ${pools.map(p => `
+        <div class="pool-item">
+          <div class="pool-name">${p.poolName} <span class="badge badge-apr">APR ${p.estimatedAPR}</span></div>
+          <div class="pool-detail">Total Staked: ${parseFloat(ethers.formatEther(p.totalStaked)).toFixed(4)} LP</div>
+          <div class="pool-detail">Reward Rate: ${parseFloat(ethers.formatEther(p.rewardRatePerSecond)).toFixed(8)} /s</div>
+          <div class="pool-detail">Pool: <a href="https://basescan.org/address/${p.poolAddress}" target="_blank">${p.poolAddress.slice(0,10)}...${p.poolAddress.slice(-8)}</a></div>
+        </div>
+      `).join('')}
+    `;
+  } catch (err) { log(`Failed to load protocol info: ${err.message}`, "error"); }
+}
+
+// ========== HISTORY ==========
+
+async function loadAllHistory() {
+  if (!userAddress) return;
+  try {
+    const [stakingRes, swapRes, dcaRes] = await Promise.all([
+      fetch(`${API}/staking/history/${userAddress}`).then(r => r.json()).catch(() => ({ transactions: [] })),
+      fetch(`${API}/swap/history/${userAddress}`).then(r => r.json()).catch(() => ({ transactions: [] })),
+      fetch(`${API}/dca/history/${userAddress}`).then(r => r.json()).catch(() => ({ transactions: [] })),
+    ]);
+
+    const all = [
+      ...(stakingRes.transactions || []),
+      ...(swapRes.transactions || []),
+      ...(dcaRes.transactions || []),
+    ].sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+
+    const div = document.getElementById("historyList");
+    if (all.length === 0) {
+      div.innerHTML = '<div class="empty-state">No transaction history yet. Transactions are tracked after you execute them.</div>';
+      return;
+    }
+
+    div.innerHTML = all.map(tx => {
+      const statusClass = `status-${tx.status}`;
+      const time = new Date(tx.submittedAt).toLocaleString();
+      const gasInfo = tx.gasUsed ? ` | Gas: ${tx.gasUsed}` : '';
+      const blockInfo = tx.blockNumber ? ` | Block: ${tx.blockNumber}` : '';
+      return `
+        <div class="history-item">
+          <div class="history-left">
+            <div class="history-action">[${tx.module}] ${tx.action}</div>
+            <div class="history-hash"><a href="${BASESCAN}${tx.txHash}" target="_blank" style="color:#a855f7">${tx.txHash.slice(0,14)}...${tx.txHash.slice(-10)}</a></div>
+            <div class="history-time">${time}${blockInfo}${gasInfo}</div>
+          </div>
+          <span class="history-status ${statusClass}">${tx.status}</span>
+        </div>`;
+    }).join('');
+
+    log(`Loaded ${all.length} transaction(s) from history`, "success");
+  } catch (err) { log(`Failed to load history: ${err.message}`, "error"); }
+}
+
+// ========== REFRESH ==========
+
+async function refreshAll() {
+  log("Refreshing pools and positions...", "info");
+  await loadPools();
+  await ensureConnected();
+  await loadPositions();
+}
+
 // ========== INIT ==========
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   loadPools();
-  if (window.ethereum && window.ethereum.selectedAddress) setTimeout(connectWallet, 500);
+  // Auto-connect: check if MetaMask already has authorized accounts
   if (window.ethereum) {
+    try {
+      const accounts = await window.ethereum.request({ method: "eth_accounts" });
+      if (accounts && accounts.length > 0) setTimeout(connectWallet, 300);
+    } catch {}
     window.ethereum.on("accountsChanged", () => window.location.reload());
     window.ethereum.on("chainChanged", () => window.location.reload());
   }

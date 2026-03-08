@@ -42,6 +42,46 @@
         }
       }
     },
+    "/staking/protocol-info": {
+      "get": {
+        "tags": ["Staking"],
+        "summary": "Get protocol info (APY, TVL)",
+        "description": "Returns Aerodrome protocol info with APR estimates and total staked per pool. Cached for 10 minutes.",
+        "responses": {
+          "200": {
+            "description": "Protocol info with pool APR data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "protocol": { "type": "string" },
+                    "chain": { "type": "string" },
+                    "pools": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "poolId": { "type": "string" },
+                          "poolName": { "type": "string" },
+                          "poolAddress": { "type": "string" },
+                          "gaugeAddress": { "type": "string" },
+                          "stable": { "type": "boolean" },
+                          "rewardRatePerSecond": { "type": "string" },
+                          "totalStaked": { "type": "string" },
+                          "estimatedAPR": { "type": "string" }
+                        }
+                      }
+                    },
+                    "updatedAt": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/staking/pools": {
       "get": {
         "tags": ["Staking"],
@@ -108,6 +148,99 @@
                       "type": "array",
                       "items": { "$ref": "#/components/schemas/Position" }
                     }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/staking/portfolio/{userAddress}": {
+      "get": {
+        "tags": ["Staking"],
+        "summary": "Get user portfolio",
+        "description": "Returns full portfolio: wallet balances, LP positions with underlying token amounts, and pending rewards.",
+        "parameters": [
+          { "name": "userAddress", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portfolio data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "userAddress": { "type": "string" },
+                    "totalPositions": { "type": "integer" },
+                    "assets": { "type": "array", "items": { "type": "object" } },
+                    "walletBalances": { "type": "object" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/staking/transaction/submit": {
+      "post": {
+        "tags": ["Staking"],
+        "summary": "Submit transaction hash for tracking",
+        "description": "Submit a signed transaction hash to track its status. The backend will poll for confirmation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["txHash", "userAddress"],
+                "properties": {
+                  "txHash": { "type": "string" },
+                  "userAddress": { "type": "string" },
+                  "action": { "type": "string", "description": "Action label (e.g., enter-strategy)" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Transaction registered for tracking" }
+        }
+      }
+    },
+    "/staking/transaction/{txHash}": {
+      "get": {
+        "tags": ["Staking"],
+        "summary": "Get transaction status",
+        "parameters": [
+          { "name": "txHash", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Transaction status (pending/confirmed/failed)" },
+          "404": { "description": "Transaction not found" }
+        }
+      }
+    },
+    "/staking/history/{userAddress}": {
+      "get": {
+        "tags": ["Staking"],
+        "summary": "Get transaction history",
+        "description": "Returns all tracked transactions for a user, sorted by most recent first.",
+        "parameters": [
+          { "name": "userAddress", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transactions": { "type": "array", "items": { "type": "object" } },
+                    "total": { "type": "integer" }
                   }
                 }
               }
@@ -257,6 +390,30 @@
         }
       }
     },
+    "/dca/transaction/submit": {
+      "post": {
+        "tags": ["DCA"],
+        "summary": "Submit DCA tx hash for tracking",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["txHash", "userAddress"], "properties": { "txHash": { "type": "string" }, "userAddress": { "type": "string" }, "action": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Transaction registered" } }
+      }
+    },
+    "/dca/transaction/{txHash}": {
+      "get": {
+        "tags": ["DCA"],
+        "summary": "Get DCA tx status",
+        "parameters": [{ "name": "txHash", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Transaction status" }, "404": { "description": "Not found" } }
+      }
+    },
+    "/dca/history/{userAddress}": {
+      "get": {
+        "tags": ["DCA"],
+        "summary": "Get DCA transaction history",
+        "parameters": [{ "name": "userAddress", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "DCA transaction list" } }
+      }
+    },
     "/dca/prepare-create": {
       "post": {
         "tags": ["DCA"],
@@ -402,6 +559,30 @@
             }
           }
         }
+      }
+    },
+    "/swap/transaction/submit": {
+      "post": {
+        "tags": ["Swap"],
+        "summary": "Submit swap tx hash for tracking",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["txHash", "userAddress"], "properties": { "txHash": { "type": "string" }, "userAddress": { "type": "string" }, "action": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Transaction registered" } }
+      }
+    },
+    "/swap/transaction/{txHash}": {
+      "get": {
+        "tags": ["Swap"],
+        "summary": "Get swap tx status",
+        "parameters": [{ "name": "txHash", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Transaction status" }, "404": { "description": "Not found" } }
+      }
+    },
+    "/swap/history/{userAddress}": {
+      "get": {
+        "tags": ["Swap"],
+        "summary": "Get swap transaction history",
+        "parameters": [{ "name": "userAddress", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Swap transaction list" } }
       }
     },
     "/swap/pairs": {

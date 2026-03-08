@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../../../config/chains";
+import { getProtocolConfig } from "../../../config/protocols";
 import { getStakingPoolById } from "../config/staking-pools";
 import { getPoolAddress } from "../../../providers/aerodrome.provider";
 import { getGaugeForPool, getStakedBalance } from "../../../providers/gauge.provider";
@@ -55,8 +56,13 @@ export async function executeExitStrategy(
     throw new Error(`Gauge not found for pool ${poolConfig.name}`);
   }
 
-  // Determine LP amount to unstake
-  const stakedBalance = await getStakedBalance(gaugeAddress, req.userAddress);
+  // Determine LP amount to unstake — check adapter (stakes on behalf of users) + user direct
+  const adapterAddress = getProtocolConfig("aerodrome").adapterAddress;
+  const [adapterStaked, userStaked] = await Promise.all([
+    adapterAddress ? getStakedBalance(gaugeAddress, adapterAddress).catch(() => 0n) : Promise.resolve(0n),
+    getStakedBalance(gaugeAddress, req.userAddress).catch(() => 0n),
+  ]);
+  const stakedBalance = adapterStaked + userStaked;
   const lpAmount = req.amount ? BigInt(req.amount) : stakedBalance;
 
   if (lpAmount === 0n) {

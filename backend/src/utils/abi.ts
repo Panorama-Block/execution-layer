@@ -10,6 +10,7 @@ export const PANORAMA_EXECUTOR_ABI = [
 export const AERODROME_ROUTER_ABI = [
   "function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) external view returns (uint256[] amounts)",
   "function poolFor(address tokenA, address tokenB, bool stable, address factory) external view returns (address pool)",
+  "function quoteAddLiquidity(address tokenA, address tokenB, bool stable, address factory, uint256 amountADesired, uint256 amountBDesired) external view returns (uint256 amountA, uint256 amountB, uint256 liquidity)",
 ] as const;
 
 export const AERODROME_FACTORY_ABI = [

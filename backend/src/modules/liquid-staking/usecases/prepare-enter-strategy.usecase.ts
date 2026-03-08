@@ -1,10 +1,11 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../../../config/chains";
+import { getProtocolConfig } from "../../../config/protocols";
 import { getStakingPoolById } from "../config/staking-pools";
 import { getPoolAddress } from "../../../providers/aerodrome.provider";
 import { getGaugeForPool } from "../../../providers/gauge.provider";
 import { getContract } from "../../../providers/chain.provider";
-import { PANORAMA_EXECUTOR_ABI, ERC20_ABI } from "../../../utils/abi";
+import { PANORAMA_EXECUTOR_ABI, AERODROME_ROUTER_ABI, ERC20_ABI } from "../../../utils/abi";
 import { encodeProtocolId, getDeadline, isNativeETH, applySlippage } from "../../../utils/encoding";
 import { PreparedTransaction, TransactionBundle } from "../../../types/transaction";
 
@@ -27,8 +28,23 @@ export interface PrepareEnterStrategyResponse {
     tokenB: { symbol: string; address: string; decimals: number };
     rewardToken: { symbol: string; address: string; decimals: number };
     stable: boolean;
+    optimalAmountA: string;
+    optimalAmountB: string;
+    estimatedLiquidity: string;
     note: string;
   };
+}
+
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 500): Promise<T> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i === retries) throw err;
+      await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw new Error("Unreachable");
 }
 
 export async function executeEnterStrategy(
@@ -40,57 +56,99 @@ export async function executeEnterStrategy(
   }
 
   const chain = getChainConfig("base");
+  const protocol = getProtocolConfig("aerodrome");
   const executorAddress = chain.contracts.panoramaExecutor;
-  const amountA = BigInt(req.amountA);
-  const amountB = BigInt(req.amountB);
-  const slippageBps = req.slippageBps ?? 50;
+  if (!executorAddress) {
+    throw new Error("Executor contract not configured");
+  }
+  let amountADesired = BigInt(req.amountA);
+  let amountBDesired = BigInt(req.amountB);
+  const slippageBps = req.slippageBps ?? 100;
   const deadlineMinutes = req.deadlineMinutes ?? 20;
 
-  // Resolve pool and gauge addresses on-chain
-  const poolAddress = await getPoolAddress(
-    poolConfig.tokenA.address,
-    poolConfig.tokenB.address,
-    poolConfig.stable
+  // Cap amounts to user's actual on-chain balance to avoid TransferFromFailed
+  // (frontend formatting roundtrips can produce values slightly above actual balance)
+  if (!isNativeETH(poolConfig.tokenA.address)) {
+    const balA: bigint = await withRetry(async () => {
+      const c = getContract(poolConfig.tokenA.address, ERC20_ABI, "base");
+      return c.balanceOf(req.userAddress) as Promise<bigint>;
+    }).catch(() => amountADesired);
+    if (amountADesired > balA) amountADesired = balA;
+  }
+  if (!isNativeETH(poolConfig.tokenB.address)) {
+    const balB: bigint = await withRetry(async () => {
+      const c = getContract(poolConfig.tokenB.address, ERC20_ABI, "base");
+      return c.balanceOf(req.userAddress) as Promise<bigint>;
+    }).catch(() => amountBDesired);
+    if (amountBDesired > balB) amountBDesired = balB;
+  }
+
+  // Resolve pool and gauge addresses on-chain (with retry for RPC flakiness)
+  const poolAddress = await withRetry(() =>
+    getPoolAddress(poolConfig.tokenA.address, poolConfig.tokenB.address, poolConfig.stable)
   );
   if (poolAddress === ethers.ZeroAddress) {
     throw new Error(`Pool not found on-chain for ${poolConfig.name}`);
   }
 
-  const gaugeAddress = await getGaugeForPool(poolAddress);
+  const gaugeAddress = await withRetry(() => getGaugeForPool(poolAddress));
   if (gaugeAddress === ethers.ZeroAddress) {
     throw new Error(`Gauge not found for pool ${poolConfig.name}`);
   }
+
+  // Query router for optimal amounts based on pool ratio
+  const router = getContract(protocol.contracts.router, AERODROME_ROUTER_ABI, "base");
+  const [optimalA, optimalB, estimatedLiquidity] = await withRetry(() =>
+    router.quoteAddLiquidity(
+      poolConfig.tokenA.address,
+      poolConfig.tokenB.address,
+      poolConfig.stable,
+      protocol.contracts.factory,
+      amountADesired,
+      amountBDesired
+    )
+  );
+
+  // Use optimal amounts (what the router will actually use)
+  // Apply slippage to the OPTIMAL amounts, not the desired amounts
+  const amountAMin = applySlippage(optimalA, slippageBps);
+  const amountBMin = applySlippage(optimalB, slippageBps);
 
   const steps: PreparedTransaction[] = [];
   const erc20Iface = new ethers.Interface(ERC20_ABI);
   const executorIface = new ethers.Interface(PANORAMA_EXECUTOR_ABI);
 
   // Step 1 - Approve tokenA to Executor (if not native ETH)
+  // Use MaxUint256 so approval only happens once per token
   if (!isNativeETH(poolConfig.tokenA.address)) {
-    const tokenAContract = getContract(poolConfig.tokenA.address, ERC20_ABI, "base");
-    const allowanceA: bigint = await tokenAContract.allowance(req.userAddress, executorAddress);
-    if (allowanceA < amountA) {
+    const allowanceA: bigint = await withRetry(async () => {
+      const c = getContract(poolConfig.tokenA.address, ERC20_ABI, "base");
+      return c.allowance(req.userAddress, executorAddress) as Promise<bigint>;
+    }).catch(() => 0n);
+    if (allowanceA < amountADesired) {
       steps.push({
         to: poolConfig.tokenA.address,
-        data: erc20Iface.encodeFunctionData("approve", [executorAddress, amountA]),
+        data: erc20Iface.encodeFunctionData("approve", [executorAddress, ethers.MaxUint256]),
         value: "0",
         chainId: chain.chainId,
-        description: `Approve ${poolConfig.tokenA.symbol} for staking`,
+        description: `Approve ${poolConfig.tokenA.symbol}`,
       });
     }
   }
 
   // Step 2 - Approve tokenB to Executor (if not native ETH)
   if (!isNativeETH(poolConfig.tokenB.address)) {
-    const tokenBContract = getContract(poolConfig.tokenB.address, ERC20_ABI, "base");
-    const allowanceB: bigint = await tokenBContract.allowance(req.userAddress, executorAddress);
-    if (allowanceB < amountB) {
+    const allowanceB: bigint = await withRetry(async () => {
+      const c = getContract(poolConfig.tokenB.address, ERC20_ABI, "base");
+      return c.allowance(req.userAddress, executorAddress) as Promise<bigint>;
+    }).catch(() => 0n);
+    if (allowanceB < amountBDesired) {
       steps.push({
         to: poolConfig.tokenB.address,
-        data: erc20Iface.encodeFunctionData("approve", [executorAddress, amountB]),
+        data: erc20Iface.encodeFunctionData("approve", [executorAddress, ethers.MaxUint256]),
         value: "0",
         chainId: chain.chainId,
-        description: `Approve ${poolConfig.tokenB.symbol} for staking`,
+        description: `Approve ${poolConfig.tokenB.symbol}`,
       });
     }
   }
@@ -98,12 +156,10 @@ export async function executeEnterStrategy(
   // Step 3 - Add Liquidity via PanoramaExecutor
   const protocolId = encodeProtocolId("aerodrome");
   const deadline = getDeadline(deadlineMinutes);
-  const amountAMin = applySlippage(amountA, slippageBps);
-  const amountBMin = applySlippage(amountB, slippageBps);
 
   let value = "0";
-  if (isNativeETH(poolConfig.tokenA.address)) value = amountA.toString();
-  else if (isNativeETH(poolConfig.tokenB.address)) value = amountB.toString();
+  if (isNativeETH(poolConfig.tokenA.address)) value = amountADesired.toString();
+  else if (isNativeETH(poolConfig.tokenB.address)) value = amountBDesired.toString();
 
   steps.push({
     to: executorAddress,
@@ -112,8 +168,8 @@ export async function executeEnterStrategy(
       poolConfig.tokenA.address,
       poolConfig.tokenB.address,
       poolConfig.stable,
-      amountA,
-      amountB,
+      amountADesired,
+      amountBDesired,
       amountAMin,
       amountBMin,
       "0x",
@@ -124,16 +180,24 @@ export async function executeEnterStrategy(
     description: `Add liquidity to ${poolConfig.name}`,
   });
 
-  // Step 4 - Approve LP token (pool address) to Executor
-  steps.push({
-    to: poolAddress,
-    data: erc20Iface.encodeFunctionData("approve", [executorAddress, ethers.MaxUint256]),
-    value: "0",
-    chainId: chain.chainId,
-    description: "Approve LP token for gauge staking",
-  });
+  // Step 4 - Approve LP token (pool address) to Executor (skip if already approved)
+  const lpAllowance: bigint = await withRetry(async () => {
+    const lp = getContract(poolAddress, ERC20_ABI, "base");
+    return lp.allowance(req.userAddress, executorAddress) as Promise<bigint>;
+  }).catch(() => 0n);
+  if (lpAllowance < estimatedLiquidity) {
+    steps.push({
+      to: poolAddress,
+      data: erc20Iface.encodeFunctionData("approve", [executorAddress, ethers.MaxUint256]),
+      value: "0",
+      chainId: chain.chainId,
+      description: "Approve LP token",
+    });
+  }
 
   // Step 5 - Stake LP in Gauge via PanoramaExecutor
+  // Use slippage-adjusted LP amount to account for difference between quote and actual
+  const safeStakeAmount = applySlippage(estimatedLiquidity, slippageBps);
   const stakeExtraData = ethers.AbiCoder.defaultAbiCoder().encode(["address"], [gaugeAddress]);
 
   steps.push({
@@ -141,12 +205,12 @@ export async function executeEnterStrategy(
     data: executorIface.encodeFunctionData("executeStake", [
       protocolId,
       poolAddress,
-      BigInt(0),
+      safeStakeAmount,
       stakeExtraData,
     ]),
     value: "0",
     chainId: chain.chainId,
-    description: "Stake LP tokens in gauge (update amount with actual LP balance after adding liquidity)",
+    description: `Stake ${estimatedLiquidity.toString()} LP tokens in gauge`,
   });
 
   return {
@@ -163,7 +227,10 @@ export async function executeEnterStrategy(
       tokenB: poolConfig.tokenB,
       rewardToken: poolConfig.rewardToken,
       stable: poolConfig.stable,
-      note: "After adding liquidity (step with description containing 'Add liquidity'), query your LP token balance at the poolAddress and use POST /execution/prepare-stake to stake the exact amount",
+      optimalAmountA: optimalA.toString(),
+      optimalAmountB: optimalB.toString(),
+      estimatedLiquidity: estimatedLiquidity.toString(),
+      note: "Amounts adjusted to pool ratio via quoteAddLiquidity.",
     },
   };
 }

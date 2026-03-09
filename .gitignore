@@ -8,6 +8,7 @@ node_modules/
 dist/
 backend/node_modules/
 backend/dist/
+.npm-cache/
 
 # Environment
 .env

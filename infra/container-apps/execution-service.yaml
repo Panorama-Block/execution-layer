@@ -1,0 +1,47 @@
+name: execution-service
+type: containerapp
+location: brazilsouth
+properties:
+  environmentId: ${ACA_ENV_ID}
+  configuration:
+    ingress:
+      external: false
+      targetPort: 3010
+    registries:
+      - server: ghcr.io
+        username: ${GHCR_USERNAME}
+        passwordSecretRef: ghcr-password
+    secrets:
+      - name: ghcr-password
+        value: ${GHCR_PASSWORD}
+      - name: base-rpc-url
+        value: ${BASE_RPC_URL}
+      - name: executor-address
+        value: ${EXECUTOR_ADDRESS}
+      - name: aerodrome-adapter-address
+        value: ${AERODROME_ADAPTER_ADDRESS}
+      - name: dca-vault-address
+        value: ${DCA_VAULT_ADDRESS}
+  template:
+    containers:
+      - name: execution-service
+        image: ghcr.io/${GHCR_NAMESPACE}/execution-service:${IMAGE_TAG}
+        env:
+          - name: NODE_ENV
+            value: production
+          - name: PORT
+            value: "3010"
+          - name: BASE_RPC_URL
+            secretRef: base-rpc-url
+          - name: EXECUTOR_ADDRESS
+            secretRef: executor-address
+          - name: AERODROME_ADAPTER_ADDRESS
+            secretRef: aerodrome-adapter-address
+          - name: DCA_VAULT_ADDRESS
+            secretRef: dca-vault-address
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+    scale:
+      minReplicas: 1
+      maxReplicas: 3

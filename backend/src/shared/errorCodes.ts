@@ -6,6 +6,7 @@ export const ErrorCodes = {
   MISSING_FIELD: { code: "MISSING_FIELD", status: 400, message: "Missing required field" },
   INVALID_POOL_ID: { code: "INVALID_POOL_ID", status: 400, message: "Invalid or unknown pool ID" },
   INVALID_SLIPPAGE: { code: "INVALID_SLIPPAGE", status: 400, message: "Slippage must be between 1 and 5000 bps" },
+  UNSUPPORTED_OPERATION: { code: "UNSUPPORTED_OPERATION", status: 400, message: "Requested operation is not supported" },
   INVALID_SIGNATURE: { code: "INVALID_SIGNATURE", status: 401, message: "Invalid wallet signature" },
   AUTH_EXPIRED: { code: "AUTH_EXPIRED", status: 401, message: "Authentication payload has expired" },
 

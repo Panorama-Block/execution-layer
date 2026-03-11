@@ -1,5 +1,5 @@
-import { ethers } from "ethers";
 import { getQuote } from "../providers/aerodrome.provider";
+import { formatExchangeRate } from "../utils/tokenMath";
 
 export interface QuoteRequest {
   tokenIn: string;
@@ -22,11 +22,7 @@ export async function executeGetQuote(req: QuoteRequest): Promise<QuoteResponse>
   const stable = req.stable ?? false;
 
   const { amountOut } = await getQuote(req.tokenIn, req.tokenOut, amountIn, stable);
-
-  const rate =
-    amountIn > 0n
-      ? (Number(amountOut) / Number(amountIn)).toFixed(6)
-      : "0";
+  const rate = await formatExchangeRate(req.tokenIn, req.tokenOut, amountIn, amountOut, 6);
 
   return {
     tokenIn: req.tokenIn,

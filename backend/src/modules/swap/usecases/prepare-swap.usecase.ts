@@ -11,6 +11,7 @@ import {
   applySlippage,
 } from "../../../utils/encoding";
 import { PreparedTransaction, TransactionBundle } from "../../../types/transaction";
+import { formatExchangeRate } from "../../../utils/tokenMath";
 
 export interface PrepareSwapRequest {
   userAddress: string;
@@ -32,6 +33,7 @@ export interface PrepareSwapResponse {
     amountOutMin: string;
     stable: boolean;
     slippageBps: number;
+    exchangeRate: string;
     priceImpact: string;
   };
 }
@@ -92,10 +94,7 @@ export async function executePrepareSwapBundle(
     description: `Swap via Aerodrome`,
   });
 
-  const priceImpact =
-    amountIn > 0n
-      ? (100 - (Number(amountOut) / Number(amountIn)) * 100).toFixed(4)
-      : "0";
+  const exchangeRate = await formatExchangeRate(req.tokenIn, req.tokenOut, amountIn, amountOut, 8);
 
   return {
     bundle: {
@@ -111,7 +110,8 @@ export async function executePrepareSwapBundle(
       amountOutMin: amountOutMin.toString(),
       stable,
       slippageBps,
-      priceImpact,
+      priceImpact: "derived from route quote; exact impact computed at execution",
+      exchangeRate,
     },
   };
 }

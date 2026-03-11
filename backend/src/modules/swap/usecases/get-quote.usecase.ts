@@ -1,5 +1,6 @@
 import { getQuote } from "../../../providers/aerodrome.provider";
 import { applySlippage } from "../../../utils/encoding";
+import { formatExchangeRate } from "../../../utils/tokenMath";
 
 export interface SwapQuoteRequest {
   tokenIn: string;
@@ -27,11 +28,7 @@ export async function executeGetSwapQuote(req: SwapQuoteRequest): Promise<SwapQu
 
   const { amountOut } = await getQuote(req.tokenIn, req.tokenOut, amountIn, stable);
   const amountOutMin = applySlippage(amountOut, slippageBps);
-
-  const exchangeRate =
-    amountIn > 0n
-      ? (Number(amountOut) / Number(amountIn)).toFixed(8)
-      : "0";
+  const exchangeRate = await formatExchangeRate(req.tokenIn, req.tokenOut, amountIn, amountOut, 8);
 
   return {
     tokenIn: req.tokenIn,

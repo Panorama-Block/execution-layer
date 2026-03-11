@@ -6,6 +6,15 @@ import { executePrepareStake, executePrepareUnstake } from "../usecases/prepare-
 import { executeGetPools, executeGetPoolDetail } from "../usecases/get-pools.usecase";
 import { executeCheckAllowance } from "../usecases/check-allowance.usecase";
 import { executePrepareApprove } from "../usecases/prepare-approve.usecase";
+import { AppError } from "../shared/errorCodes";
+
+function handleControllerError(err: unknown, res: Response) {
+  if (err instanceof AppError) {
+    return res.status(err.status).json({ error: err.details ?? err.message });
+  }
+  const message = err instanceof Error ? err.message : "Internal server error";
+  return res.status(500).json({ error: message });
+}
 
 export async function getQuote(req: Request, res: Response) {
   try {
@@ -16,7 +25,7 @@ export async function getQuote(req: Request, res: Response) {
     const result = await executeGetQuote({ tokenIn, tokenOut, amountIn, stable });
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return handleControllerError(err, res);
   }
 }
 
@@ -29,7 +38,7 @@ export async function prepareSwap(req: Request, res: Response) {
     const tx = await executePrepareSwap({ tokenIn, tokenOut, amountIn, slippageBps, userAddress, stable, deadlineMinutes });
     return res.json(tx);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return handleControllerError(err, res);
   }
 }
 
@@ -42,7 +51,7 @@ export async function prepareLiquidity(req: Request, res: Response) {
     const tx = await executePrepareAddLiquidity({ tokenA, tokenB, amountA, amountB, slippageBps, stable, deadlineMinutes });
     return res.json(tx);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return handleControllerError(err, res);
   }
 }
 
@@ -55,7 +64,7 @@ export async function prepareStake(req: Request, res: Response) {
     const tx = await executePrepareStake({ lpToken, amount });
     return res.json(tx);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return handleControllerError(err, res);
   }
 }
 
@@ -68,7 +77,7 @@ export async function prepareUnstake(req: Request, res: Response) {
     const tx = await executePrepareUnstake({ lpToken, amount });
     return res.json(tx);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return handleControllerError(err, res);
   }
 }
 
@@ -77,7 +86,7 @@ export async function getPools(_req: Request, res: Response) {
     const result = await executeGetPools();
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return handleControllerError(err, res);
   }
 }
 
@@ -90,7 +99,7 @@ export async function checkAllowance(req: Request, res: Response) {
     const result = await executeCheckAllowance({ token, owner, spender });
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return handleControllerError(err, res);
   }
 }
 
@@ -103,7 +112,7 @@ export async function prepareApprove(req: Request, res: Response) {
     const tx = await executePrepareApprove({ token, spender, amount });
     return res.json(tx);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return handleControllerError(err, res);
   }
 }
 

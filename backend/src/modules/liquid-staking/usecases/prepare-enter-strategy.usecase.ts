@@ -8,6 +8,7 @@ import { getContract } from "../../../providers/chain.provider";
 import { PANORAMA_EXECUTOR_ABI, AERODROME_ROUTER_ABI, ERC20_ABI } from "../../../utils/abi";
 import { encodeProtocolId, getDeadline, isNativeETH, applySlippage } from "../../../utils/encoding";
 import { PreparedTransaction, TransactionBundle } from "../../../types/transaction";
+import { AppError } from "../../../shared/errorCodes";
 
 export interface PrepareEnterStrategyRequest {
   userAddress: string;
@@ -60,6 +61,12 @@ export async function executeEnterStrategy(
   const executorAddress = chain.contracts.panoramaExecutor;
   if (!executorAddress) {
     throw new Error("Executor contract not configured");
+  }
+  if (isNativeETH(poolConfig.tokenA.address) || isNativeETH(poolConfig.tokenB.address)) {
+    throw new AppError(
+      "UNSUPPORTED_OPERATION",
+      "Native ETH liquidity is not supported by PanoramaExecutor; use ERC-20 wrapped assets"
+    );
   }
   let amountADesired = BigInt(req.amountA);
   let amountBDesired = BigInt(req.amountB);
@@ -139,50 +146,41 @@ export async function executeEnterStrategy(
   const erc20Iface = new ethers.Interface(ERC20_ABI);
   const executorIface = new ethers.Interface(PANORAMA_EXECUTOR_ABI);
 
-  // Step 1 - Approve tokenA to Executor (if not native ETH)
-  // Use MaxUint256 so approval only happens once per token
-  if (!isNativeETH(poolConfig.tokenA.address)) {
-    const allowanceA: bigint = await withRetry(async () => {
-      const c = getContract(poolConfig.tokenA.address, ERC20_ABI, "base");
-      return c.allowance(req.userAddress, executorAddress) as Promise<bigint>;
-    }, 4, 800).catch((e) => { console.error(`[ENTER] allowance check ${poolConfig.tokenA.symbol} FAILED:`, e instanceof Error ? e.message : e); return 0n; });
-    console.log(`[ENTER] ${poolConfig.tokenA.symbol} allowance=${allowanceA.toString()}, needed=${amountADesired.toString()}, skip=${allowanceA >= amountADesired}`);
-    if (allowanceA < amountADesired) {
-      steps.push({
-        to: poolConfig.tokenA.address,
-        data: erc20Iface.encodeFunctionData("approve", [executorAddress, ethers.MaxUint256]),
-        value: "0",
-        chainId: chain.chainId,
-        description: `Approve ${poolConfig.tokenA.symbol}`,
-      });
-    }
+  // Step 1 - Approve tokenA to Executor for the exact amount required
+  const allowanceA: bigint = await withRetry(async () => {
+    const c = getContract(poolConfig.tokenA.address, ERC20_ABI, "base");
+    return c.allowance(req.userAddress, executorAddress) as Promise<bigint>;
+  }, 4, 800).catch((e) => { console.error(`[ENTER] allowance check ${poolConfig.tokenA.symbol} FAILED:`, e instanceof Error ? e.message : e); return 0n; });
+  console.log(`[ENTER] ${poolConfig.tokenA.symbol} allowance=${allowanceA.toString()}, needed=${amountADesired.toString()}, skip=${allowanceA >= amountADesired}`);
+  if (allowanceA < amountADesired) {
+    steps.push({
+      to: poolConfig.tokenA.address,
+      data: erc20Iface.encodeFunctionData("approve", [executorAddress, amountADesired]),
+      value: "0",
+      chainId: chain.chainId,
+      description: `Approve ${poolConfig.tokenA.symbol}`,
+    });
   }
 
-  // Step 2 - Approve tokenB to Executor (if not native ETH)
-  if (!isNativeETH(poolConfig.tokenB.address)) {
-    const allowanceB: bigint = await withRetry(async () => {
-      const c = getContract(poolConfig.tokenB.address, ERC20_ABI, "base");
-      return c.allowance(req.userAddress, executorAddress) as Promise<bigint>;
-    }, 4, 800).catch((e) => { console.error(`[ENTER] allowance check ${poolConfig.tokenB.symbol} FAILED:`, e instanceof Error ? e.message : e); return 0n; });
-    console.log(`[ENTER] ${poolConfig.tokenB.symbol} allowance=${allowanceB.toString()}, needed=${amountBDesired.toString()}, skip=${allowanceB >= amountBDesired}`);
-    if (allowanceB < amountBDesired) {
-      steps.push({
-        to: poolConfig.tokenB.address,
-        data: erc20Iface.encodeFunctionData("approve", [executorAddress, ethers.MaxUint256]),
-        value: "0",
-        chainId: chain.chainId,
-        description: `Approve ${poolConfig.tokenB.symbol}`,
-      });
-    }
+  // Step 2 - Approve tokenB to Executor for the exact amount required
+  const allowanceB: bigint = await withRetry(async () => {
+    const c = getContract(poolConfig.tokenB.address, ERC20_ABI, "base");
+    return c.allowance(req.userAddress, executorAddress) as Promise<bigint>;
+  }, 4, 800).catch((e) => { console.error(`[ENTER] allowance check ${poolConfig.tokenB.symbol} FAILED:`, e instanceof Error ? e.message : e); return 0n; });
+  console.log(`[ENTER] ${poolConfig.tokenB.symbol} allowance=${allowanceB.toString()}, needed=${amountBDesired.toString()}, skip=${allowanceB >= amountBDesired}`);
+  if (allowanceB < amountBDesired) {
+    steps.push({
+      to: poolConfig.tokenB.address,
+      data: erc20Iface.encodeFunctionData("approve", [executorAddress, amountBDesired]),
+      value: "0",
+      chainId: chain.chainId,
+      description: `Approve ${poolConfig.tokenB.symbol}`,
+    });
   }
 
   // Step 3 - Add Liquidity via PanoramaExecutor
   const protocolId = encodeProtocolId("aerodrome");
   const deadline = getDeadline(deadlineMinutes);
-
-  let value = "0";
-  if (isNativeETH(poolConfig.tokenA.address)) value = amountADesired.toString();
-  else if (isNativeETH(poolConfig.tokenB.address)) value = amountBDesired.toString();
 
   steps.push({
     to: executorAddress,
@@ -198,10 +196,13 @@ export async function executeEnterStrategy(
       "0x",
       deadline,
     ]),
-    value,
+    value: "0",
     chainId: chain.chainId,
     description: `Add liquidity to ${poolConfig.name}`,
   });
+
+  // Use slippage-adjusted LP amount to account for differences between quote and execution.
+  const safeStakeAmount = applySlippage(estimatedLiquidity, slippageBps);
 
   // Step 4 - Approve LP token (pool address) to Executor (skip if already approved)
   const lpAllowance: bigint = await withRetry(async () => {
@@ -209,10 +210,10 @@ export async function executeEnterStrategy(
     return lp.allowance(req.userAddress, executorAddress) as Promise<bigint>;
   }, 4, 800).catch((e) => { console.error(`[ENTER] LP allowance check FAILED:`, e instanceof Error ? e.message : e); return 0n; });
   console.log(`[ENTER] LP allowance=${lpAllowance.toString()}, needed=${estimatedLiquidity.toString()}, skip=${lpAllowance >= estimatedLiquidity}`);
-  if (lpAllowance < estimatedLiquidity) {
+  if (lpAllowance < safeStakeAmount) {
     steps.push({
       to: poolAddress,
-      data: erc20Iface.encodeFunctionData("approve", [executorAddress, ethers.MaxUint256]),
+      data: erc20Iface.encodeFunctionData("approve", [executorAddress, safeStakeAmount]),
       value: "0",
       chainId: chain.chainId,
       description: "Approve LP token",
@@ -220,8 +221,6 @@ export async function executeEnterStrategy(
   }
 
   // Step 5 - Stake LP in Gauge via PanoramaExecutor
-  // Use slippage-adjusted LP amount to account for difference between quote and actual
-  const safeStakeAmount = applySlippage(estimatedLiquidity, slippageBps);
   const stakeExtraData = ethers.AbiCoder.defaultAbiCoder().encode(["address"], [gaugeAddress]);
 
   steps.push({

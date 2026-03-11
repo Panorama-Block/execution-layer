@@ -3,6 +3,7 @@ import { getChainConfig } from "../config/chains";
 import { PANORAMA_EXECUTOR_ABI } from "../utils/abi";
 import { encodeProtocolId, getDeadline, isNativeETH, applySlippage } from "../utils/encoding";
 import { PreparedTransaction } from "../types/transaction";
+import { AppError } from "../shared/errorCodes";
 
 export interface PrepareLiquidityRequest {
   tokenA: string;
@@ -23,6 +24,13 @@ export async function executePrepareAddLiquidity(
   const stable = req.stable ?? false;
   const slippageBps = req.slippageBps ?? 50;
   const deadlineMinutes = req.deadlineMinutes ?? 20;
+
+  if (isNativeETH(req.tokenA) || isNativeETH(req.tokenB)) {
+    throw new AppError(
+      "UNSUPPORTED_OPERATION",
+      "Native ETH liquidity is not supported by PanoramaExecutor; use ERC-20 token addresses only"
+    );
+  }
 
   const amountAMin = applySlippage(amountA, slippageBps);
   const amountBMin = applySlippage(amountB, slippageBps);
@@ -45,15 +53,10 @@ export async function executePrepareAddLiquidity(
     deadline,
   ]);
 
-  // If either token is native ETH, send its amount as value
-  let value = "0";
-  if (isNativeETH(req.tokenA)) value = amountA.toString();
-  else if (isNativeETH(req.tokenB)) value = amountB.toString();
-
   return {
     to: chain.contracts.panoramaExecutor,
     data,
-    value,
+    value: "0",
     chainId: chain.chainId,
   };
 }

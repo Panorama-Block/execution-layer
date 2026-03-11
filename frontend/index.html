@@ -787,7 +787,8 @@ async function loadProtocolInfo() {
       <div class="pool-detail" style="margin-bottom:12px"><strong>${data.protocol}</strong> on ${data.chain} — Updated: ${new Date(data.updatedAt).toLocaleTimeString()}</div>
       ${pools.map(p => `
         <div class="pool-item">
-          <div class="pool-name">${p.poolName} <span class="badge badge-apr">APR ${p.estimatedAPR}</span></div>
+          <div class="pool-name">${p.poolName} <span class="badge badge-apr">Fee APR ${p.estimatedAPR}</span></div>
+          <div class="pool-detail">${p.aprDisclaimer || ""}</div>
           <div class="pool-detail">Total Staked: ${parseFloat(ethers.formatEther(p.totalStaked)).toFixed(4)} LP</div>
           <div class="pool-detail">Reward Rate: ${parseFloat(ethers.formatEther(p.rewardRatePerSecond)).toFixed(8)} /s</div>
           <div class="pool-detail">Pool: <a href="https://basescan.org/address/${p.poolAddress}" target="_blank">${p.poolAddress.slice(0,10)}...${p.poolAddress.slice(-8)}</a></div>

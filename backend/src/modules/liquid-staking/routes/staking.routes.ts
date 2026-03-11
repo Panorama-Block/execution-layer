@@ -48,6 +48,7 @@ stakingRoutes.post("/prepare-enter",
 stakingRoutes.post("/prepare-exit",
   validateRequired("userAddress", "poolId"),
   validateAddress("userAddress"),
+  validateSlippage(),
   asyncHandler(prepareExitStrategy)
 );
 

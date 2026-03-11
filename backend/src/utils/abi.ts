@@ -1,5 +1,6 @@
 export const PANORAMA_EXECUTOR_ABI = [
   "function executeSwap(bytes32 protocolId, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin, bytes calldata extraData, uint256 deadline) external payable returns (uint256 amountOut)",
+  "function executeSwapFor(bytes32 protocolId, address adapterOwner, address tokenPayer, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin, address recipient, bytes calldata extraData, uint256 deadline) external payable returns (uint256 amountOut)",
   "function executeAddLiquidity(bytes32 protocolId, address tokenA, address tokenB, bool stable, uint256 amountADesired, uint256 amountBDesired, uint256 amountAMin, uint256 amountBMin, bytes calldata extraData, uint256 deadline) external payable returns (uint256 liquidity)",
   "function executeRemoveLiquidity(bytes32 protocolId, address tokenA, address tokenB, bool stable, uint256 liquidity, uint256 amountAMin, uint256 amountBMin, bytes calldata extraData, uint256 deadline) external returns (uint256 amountA, uint256 amountB)",
   "function executeStake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData) external",
@@ -27,6 +28,7 @@ export const ERC20_ABI = [
   "function balanceOf(address) external view returns (uint256)",
   "function decimals() external view returns (uint8)",
   "function symbol() external view returns (string)",
+  "function totalSupply() external view returns (uint256)",
   "function allowance(address owner, address spender) external view returns (uint256)",
   "function approve(address spender, uint256 amount) external returns (bool)",
 ] as const;

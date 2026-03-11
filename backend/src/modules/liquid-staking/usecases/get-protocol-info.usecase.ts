@@ -1,9 +1,9 @@
 import { ethers } from "ethers";
 import { getEnabledStakingPools } from "../config/staking-pools";
 import { getPoolAddress } from "../../../providers/aerodrome.provider";
-import { getGaugeForPool, getRewardRate } from "../../../providers/gauge.provider";
+import { getGaugeForPool } from "../../../providers/gauge.provider";
 import { getContract } from "../../../providers/chain.provider";
-import { GAUGE_ABI, POOL_ABI } from "../../../utils/abi";
+import { GAUGE_ABI } from "../../../utils/abi";
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 500): Promise<T> {
   for (let i = 0; i <= retries; i++) {
@@ -15,7 +15,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 500): P
   throw new Error("withRetry exhausted");
 }
 
-/** Fetch fee-based APR from DexScreener as fallback */
+/** Fetch fee-based APR from DexScreener. This is fee APR only, not total strategy APR. */
 async function fetchDexScreenerAPR(poolAddress: string, feeRate: number): Promise<string | null> {
   try {
     const res = await fetch(`https://api.dexscreener.com/latest/dex/pairs/base/${poolAddress}`, {
@@ -43,6 +43,8 @@ interface PoolInfo {
   rewardRatePerSecond: string;
   totalStaked: string;
   estimatedAPR: string;
+  aprSource: "dexscreener_fee_apr" | "unavailable";
+  aprDisclaimer: string;
 }
 
 export interface GetProtocolInfoResponse {
@@ -98,28 +100,9 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
         console.error(`[PROTOCOL-INFO]   totalSupply FAILED:`, e instanceof Error ? e.message : e);
       }
 
-      // Estimate APR: try on-chain gauge first, then DexScreener fee APR as fallback
-      let estimatedAPR = "0";
-      if (totalStaked > 0n && rewardRate > 0n) {
-        // On-chain: compare AERO rewards value vs LP staked value
-        // Simplified: just use fee-based APR from DexScreener for accuracy
-        const secondsPerYear = 365n * 24n * 3600n;
-        const yearlyRewards = rewardRate * secondsPerYear;
-        const aprBps = (yearlyRewards * 10000n) / totalStaked;
-        estimatedAPR = (Number(aprBps) / 100).toFixed(2);
-      }
-
-      // If on-chain APR is 0 or absurdly high (>10000%), use DexScreener fee APR
-      const aprNum = parseFloat(estimatedAPR);
-      if (aprNum === 0 || aprNum > 10000) {
-        const feeRate = pool.stable ? 0.0001 : 0.003; // 1bp stable, 30bp volatile
-        const dexAPR = await fetchDexScreenerAPR(poolAddress, feeRate);
-        if (dexAPR) {
-          console.log(`[PROTOCOL-INFO]   Using DexScreener APR: ${dexAPR} (on-chain was ${estimatedAPR}%)`);
-          estimatedAPR = dexAPR.replace("%", "");
-        }
-      }
-      console.log(`[PROTOCOL-INFO]   estimatedAPR=${estimatedAPR}%`);
+      const feeRate = pool.stable ? 0.0001 : 0.003; // 1bp stable, 30bp volatile
+      const estimatedAPR = await fetchDexScreenerAPR(poolAddress, feeRate);
+      console.log(`[PROTOCOL-INFO]   estimatedFeeAPR=${estimatedAPR ?? "unavailable"}`);
 
       pools.push({
         poolId: pool.id,
@@ -129,7 +112,9 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
         stable: pool.stable,
         rewardRatePerSecond: rewardRate.toString(),
         totalStaked: totalStaked.toString(),
-        estimatedAPR: `${estimatedAPR}%`,
+        estimatedAPR: estimatedAPR ?? "unavailable",
+        aprSource: estimatedAPR ? "dexscreener_fee_apr" : "unavailable",
+        aprDisclaimer: "Fee APR estimate only. Does not include reward-token incentives or impermanent loss.",
       });
     } catch (err) {
       console.error(`[PROTOCOL-INFO] Pool ${pool.name} FAILED entirely:`, err instanceof Error ? err.message : err);

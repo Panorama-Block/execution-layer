@@ -5,14 +5,15 @@ import { getStakingPoolById } from "../config/staking-pools";
 import { getPoolAddress } from "../../../providers/aerodrome.provider";
 import { getGaugeForPool, getStakedBalance } from "../../../providers/gauge.provider";
 import { getContract } from "../../../providers/chain.provider";
-import { PANORAMA_EXECUTOR_ABI, ERC20_ABI } from "../../../utils/abi";
-import { encodeProtocolId, getDeadline } from "../../../utils/encoding";
+import { PANORAMA_EXECUTOR_ABI, ERC20_ABI, POOL_ABI } from "../../../utils/abi";
+import { applySlippage, encodeProtocolId, getDeadline } from "../../../utils/encoding";
 import { PreparedTransaction, TransactionBundle } from "../../../types/transaction";
 
 export interface PrepareExitStrategyRequest {
   userAddress: string;
   poolId: string;
   amount?: string; // LP amount in wei. If omitted, exits full position.
+  slippageBps?: number;
   deadlineMinutes?: number;
 }
 
@@ -39,6 +40,7 @@ export async function executeExitStrategy(
 
   const chain = getChainConfig("base");
   const executorAddress = chain.contracts.panoramaExecutor;
+  const slippageBps = req.slippageBps ?? 100;
   const deadlineMinutes = req.deadlineMinutes ?? 20;
 
   // Resolve pool and gauge addresses on-chain
@@ -70,6 +72,18 @@ export async function executeExitStrategy(
     throw new Error(`Insufficient staked balance. Have: ${stakedBalance.toString()}, requested: ${lpAmount.toString()}`);
   }
 
+  const poolContract = getContract(poolAddress, POOL_ABI, "base");
+  const lpContract = getContract(poolAddress, ERC20_ABI, "base");
+  const [[reserve0, reserve1], totalSupply] = await Promise.all([
+    poolContract.getReserves() as Promise<[bigint, bigint, bigint]>,
+    lpContract.totalSupply() as Promise<bigint>,
+  ]);
+  if (totalSupply === 0n) {
+    throw new Error(`Pool ${poolConfig.name} has zero LP supply`);
+  }
+  const amountAMin = applySlippage((reserve0 * lpAmount) / totalSupply, slippageBps);
+  const amountBMin = applySlippage((reserve1 * lpAmount) / totalSupply, slippageBps);
+
   const steps: PreparedTransaction[] = [];
   const erc20Iface = new ethers.Interface(ERC20_ABI);
   const executorIface = new ethers.Interface(PANORAMA_EXECUTOR_ABI);
@@ -93,7 +107,6 @@ export async function executeExitStrategy(
   });
 
   // Step 2 - Approve LP token to Executor for removeLiquidity
-  const lpContract = getContract(poolAddress, ERC20_ABI, "base");
   const currentAllowance: bigint = await lpContract.allowance(req.userAddress, executorAddress);
   if (currentAllowance < lpAmount) {
     steps.push({
@@ -116,8 +129,8 @@ export async function executeExitStrategy(
       poolConfig.tokenB.address,
       poolConfig.stable,
       lpAmount,
-      BigInt(0), // amountAMin - 0 for simplicity, frontend can adjust
-      BigInt(0), // amountBMin
+      amountAMin,
+      amountBMin,
       removeExtraData,
       deadline,
     ]),

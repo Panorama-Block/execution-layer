@@ -15,22 +15,33 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 500): P
   throw new Error("withRetry exhausted");
 }
 
-/** Fetch fee-based APR from DexScreener as fallback */
-async function fetchDexScreenerAPR(poolAddress: string, feeRate: number): Promise<string | null> {
+type DexScreenerMetrics = {
+  feeAPR: string | null;
+  tvlUsd: number | null;
+};
+
+/** Fetch fee-based APR and real TVL from DexScreener. */
+async function fetchDexScreenerMetrics(poolAddress: string, feeRate: number): Promise<DexScreenerMetrics> {
   try {
     const res = await fetch(`https://api.dexscreener.com/latest/dex/pairs/base/${poolAddress}`, {
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { feeAPR: null, tvlUsd: null };
     const json = await res.json() as { pairs?: { volume?: { h24?: number }; liquidity?: { usd?: number } }[] };
     const pair = json.pairs?.[0];
-    if (!pair?.volume?.h24 || !pair?.liquidity?.usd || pair.liquidity.usd === 0) return null;
-    const feeAPR = (pair.volume.h24 * feeRate * 365) / pair.liquidity.usd * 100;
-    console.log(`[APR-DEXSCREENER] vol24h=$${pair.volume.h24.toFixed(0)}, tvl=$${pair.liquidity.usd.toFixed(0)}, feeRate=${feeRate}, feeAPR=${feeAPR.toFixed(2)}%`);
-    return `${feeAPR.toFixed(2)}%`;
+    const tvlUsd = pair?.liquidity?.usd ?? null;
+    const vol24h = pair?.volume?.h24 ?? null;
+
+    if (!tvlUsd || tvlUsd <= 0 || !vol24h || vol24h <= 0) {
+      return { feeAPR: null, tvlUsd };
+    }
+
+    const feeAPR = (vol24h * feeRate * 365) / tvlUsd * 100;
+    console.log(`[APR-DEXSCREENER] vol24h=$${vol24h.toFixed(0)}, tvl=$${tvlUsd.toFixed(0)}, feeRate=${feeRate}, feeAPR=${feeAPR.toFixed(2)}%`);
+    return { feeAPR: `${feeAPR.toFixed(2)}%`, tvlUsd };
   } catch (e) {
     console.error(`[APR-DEXSCREENER] Failed:`, e instanceof Error ? e.message : e);
-    return null;
+    return { feeAPR: null, tvlUsd: null };
   }
 }
 
@@ -43,6 +54,7 @@ interface PoolInfo {
   rewardRatePerSecond: string;
   totalStaked: string;
   estimatedAPR: string;
+  totalLiquidityUsd: string | null;
 }
 
 export interface GetProtocolInfoResponse {
@@ -98,8 +110,10 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
         console.error(`[PROTOCOL-INFO]   totalSupply FAILED:`, e instanceof Error ? e.message : e);
       }
 
-      // Estimate APR: try on-chain gauge first, then DexScreener fee APR as fallback
+      // Estimate APR: try on-chain gauge first, then DexScreener fee APR as fallback.
+      // Also capture real pool TVL (USD) from DexScreener for UI display.
       let estimatedAPR = "0";
+      let totalLiquidityUsd: string | null = null;
       if (totalStaked > 0n && rewardRate > 0n) {
         // On-chain: compare AERO rewards value vs LP staked value
         // Simplified: just use fee-based APR from DexScreener for accuracy
@@ -109,17 +123,25 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
         estimatedAPR = (Number(aprBps) / 100).toFixed(2);
       }
 
-      // If on-chain APR is 0 or absurdly high (>10000%), use DexScreener fee APR
+      const feeRate = pool.stable ? 0.0001 : 0.003; // 1bp stable, 30bp volatile
+      const dexMetrics = await fetchDexScreenerMetrics(poolAddress, feeRate);
+      if (dexMetrics.tvlUsd != null && Number.isFinite(dexMetrics.tvlUsd)) {
+        totalLiquidityUsd = dexMetrics.tvlUsd.toFixed(2);
+      }
+
+      // If on-chain APR is 0 or absurdly high (>10000%), use DexScreener fee APR.
       const aprNum = parseFloat(estimatedAPR);
       if (aprNum === 0 || aprNum > 10000) {
-        const feeRate = pool.stable ? 0.0001 : 0.003; // 1bp stable, 30bp volatile
-        const dexAPR = await fetchDexScreenerAPR(poolAddress, feeRate);
+        const dexAPR = dexMetrics.feeAPR;
         if (dexAPR) {
           console.log(`[PROTOCOL-INFO]   Using DexScreener APR: ${dexAPR} (on-chain was ${estimatedAPR}%)`);
           estimatedAPR = dexAPR.replace("%", "");
         }
       }
       console.log(`[PROTOCOL-INFO]   estimatedAPR=${estimatedAPR}%`);
+      if (totalLiquidityUsd != null) {
+        console.log(`[PROTOCOL-INFO]   totalLiquidityUsd=$${totalLiquidityUsd}`);
+      }
 
       pools.push({
         poolId: pool.id,
@@ -130,6 +152,7 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
         rewardRatePerSecond: rewardRate.toString(),
         totalStaked: totalStaked.toString(),
         estimatedAPR: `${estimatedAPR}%`,
+        totalLiquidityUsd,
       });
     } catch (err) {
       console.error(`[PROTOCOL-INFO] Pool ${pool.name} FAILED entirely:`, err instanceof Error ? err.message : err);

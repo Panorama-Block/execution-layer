@@ -24,33 +24,79 @@ export interface GetStakingPoolsResponse {
   pools: StakingPoolInfo[];
 }
 
+let cache: { data: GetStakingPoolsResponse; expiresAt: number } | null = null;
+const CACHE_TTL_MS = 60 * 1000;
+
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 500): Promise<T> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i === retries) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * (i + 1)));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
+function withTimeout<T>(fn: () => Promise<T>, ms = 2500): Promise<T> {
+  return Promise.race([
+    fn(),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+  ]);
+}
+
+async function safeCall<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await withTimeout(fn);
+  } catch {
+    return fallback;
+  }
+}
+
+async function resolvePoolAndGaugeAddresses(pool: ReturnType<typeof getEnabledStakingPools>[number]): Promise<{ poolAddress: string; gaugeAddress: string } | null> {
+  const poolAddress = pool.poolAddress && pool.poolAddress !== ethers.ZeroAddress
+    ? pool.poolAddress
+    : await withRetry(() => withTimeout(() => getPoolAddress(
+      pool.tokenA.address,
+      pool.tokenB.address,
+      pool.stable
+    )));
+
+  if (!poolAddress || poolAddress === ethers.ZeroAddress) return null;
+
+  const gaugeAddress = pool.gaugeAddress && pool.gaugeAddress !== ethers.ZeroAddress
+    ? pool.gaugeAddress
+    : await withRetry(() => withTimeout(() => getGaugeForPool(poolAddress)));
+
+  if (!gaugeAddress || gaugeAddress === ethers.ZeroAddress) return null;
+  return { poolAddress, gaugeAddress };
+}
+
 export async function executeGetStakingPools(): Promise<GetStakingPoolsResponse> {
+  if (cache && Date.now() < cache.expiresAt) {
+    return cache.data;
+  }
+
   const enabledPools = getEnabledStakingPools();
   const config = getProtocolConfig("aerodrome");
-  const pools: StakingPoolInfo[] = [];
-
-  for (const pool of enabledPools) {
+  const poolResults = await Promise.all(enabledPools.map(async (pool) => {
     try {
-      const poolAddress = await getPoolAddress(
-        pool.tokenA.address,
-        pool.tokenB.address,
-        pool.stable
-      );
-      if (poolAddress === ethers.ZeroAddress) continue;
-
-      const gaugeAddress = await getGaugeForPool(poolAddress);
-      if (gaugeAddress === ethers.ZeroAddress) continue;
+      const resolved = await resolvePoolAndGaugeAddresses(pool);
+      if (!resolved) return null;
+      const { poolAddress, gaugeAddress } = resolved;
 
       const voter = getContract(config.contracts.voter, VOTER_ABI, "base");
       const gauge = getContract(gaugeAddress, GAUGE_ABI, "base");
 
+      // Do not drop the entire pool on partial RPC failures.
       const [gaugeAlive, totalStaked, rewardRate] = await Promise.all([
-        voter.isAlive(gaugeAddress) as Promise<boolean>,
-        gauge.totalSupply() as Promise<bigint>,
-        getRewardRate(gaugeAddress),
+        safeCall(() => voter.isAlive(gaugeAddress) as Promise<boolean>, true),
+        safeCall(() => gauge.totalSupply() as Promise<bigint>, 0n),
+        safeCall(() => getRewardRate(gaugeAddress), 0n),
       ]);
 
-      pools.push({
+      return {
         id: pool.id,
         name: pool.name,
         tokenA: pool.tokenA,
@@ -62,11 +108,19 @@ export async function executeGetStakingPools(): Promise<GetStakingPoolsResponse>
         rewardToken: pool.rewardToken,
         totalStaked: totalStaked.toString(),
         rewardRate: rewardRate.toString(),
-      });
-    } catch {
-      // Skip pools that fail to load
+      };
+    } catch (err) {
+      console.error(
+        `[STAKING/POOLS] Failed to resolve pool ${pool.name}:`,
+        err instanceof Error ? err.message : err
+      );
+      return null;
     }
-  }
+  }));
 
-  return { pools };
+  const data: GetStakingPoolsResponse = {
+    pools: poolResults.filter((pool): pool is StakingPoolInfo => pool !== null),
+  };
+  cache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
+  return data;
 }

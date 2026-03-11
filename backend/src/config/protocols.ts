@@ -27,38 +27,89 @@ export const BASE_TOKENS: Record<string, { address: string; decimals: number }> 
  * Uses the executor's predictUserAdapter() to compute the deterministic clone address.
  * Results are cached since the prediction is deterministic (same input → same output).
  */
-const adapterCache = new Map<string, string>();
+const adapterCache = new Map<string, { value: string; expiresAt: number }>();
+const adapterInFlight = new Map<string, Promise<string>>();
+const ADAPTER_CACHE_TTL_MS = 10 * 60 * 1000;
+const EMPTY_ADAPTER_CACHE_TTL_MS = 30 * 1000;
+const ADAPTER_LOOKUP_TIMEOUT_MS = 3500;
+
+function withTimeout<T>(fn: () => Promise<T>, ms = ADAPTER_LOOKUP_TIMEOUT_MS): Promise<T> {
+  return Promise.race([
+    fn(),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("adapter lookup timeout")), ms)),
+  ]);
+}
+
+function isAdapterMissingError(err: unknown): boolean {
+  const message = String((err as any)?.message || err || "").toLowerCase();
+  const code = String((err as any)?.code || "").toUpperCase();
+  return (
+    code === "CALL_EXCEPTION" ||
+    message.includes("call_exception") ||
+    message.includes("execution reverted") ||
+    message.includes("missing revert data") ||
+    message.includes("no data present") ||
+    message.includes("require(false)")
+  );
+}
 
 export async function getUserAdapterAddress(userAddress: string, protocolId: string): Promise<string> {
   const cacheKey = `${protocolId}:${userAddress.toLowerCase()}`;
   const cached = adapterCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached && Date.now() < cached.expiresAt) return cached.value;
+  const inFlight = adapterInFlight.get(cacheKey);
+  if (inFlight) return inFlight;
 
-  const { getContract } = await import("../providers/chain.provider");
-  const { PANORAMA_EXECUTOR_ABI } = await import("../utils/abi");
-  const { getChainConfig } = await import("./chains");
-  const { encodeProtocolId } = await import("../utils/encoding");
+  const request = (async () => {
+    const { getContract } = await import("../providers/chain.provider");
+    const { PANORAMA_EXECUTOR_ABI } = await import("../utils/abi");
+    const { getChainConfig } = await import("./chains");
+    const { encodeProtocolId } = await import("../utils/encoding");
 
-  const chain = getChainConfig("base");
-  const executor = getContract(chain.contracts.panoramaExecutor, PANORAMA_EXECUTOR_ABI, "base");
-  const protoBytes32 = encodeProtocolId(protocolId);
+    const chain = getChainConfig("base");
+    const executor = getContract(chain.contracts.panoramaExecutor, PANORAMA_EXECUTOR_ABI, "base");
+    const protoBytes32 = encodeProtocolId(protocolId);
 
-  // Retry up to 3 times — public Base RPC is flaky
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const predicted: string = await executor.predictUserAdapter(protoBytes32, userAddress);
-      if (predicted) {
-        adapterCache.set(cacheKey, predicted);
-      }
-      return predicted;
-    } catch (err) {
-      console.warn(`[getUserAdapterAddress] attempt ${attempt + 1} failed:`, err instanceof Error ? err.message : err);
-      if (attempt < 2) {
-        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    // Retry up to 3 times — public Base RPC is flaky
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const predicted: string = await withTimeout(
+          () => executor.predictUserAdapter(protoBytes32, userAddress),
+          ADAPTER_LOOKUP_TIMEOUT_MS
+        );
+        const hasAddress = Boolean(predicted) && predicted !== "0x0000000000000000000000000000000000000000";
+        adapterCache.set(cacheKey, {
+          value: hasAddress ? predicted : "",
+          expiresAt: Date.now() + (hasAddress ? ADAPTER_CACHE_TTL_MS : EMPTY_ADAPTER_CACHE_TTL_MS),
+        });
+        return predicted;
+      } catch (err) {
+        if (isAdapterMissingError(err)) {
+          adapterCache.set(cacheKey, {
+            value: "",
+            expiresAt: Date.now() + EMPTY_ADAPTER_CACHE_TTL_MS,
+          });
+          return "";
+        }
+        console.warn(`[getUserAdapterAddress] attempt ${attempt + 1} failed:`, err instanceof Error ? err.message : err);
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        }
       }
     }
+    adapterCache.set(cacheKey, {
+      value: "",
+      expiresAt: Date.now() + EMPTY_ADAPTER_CACHE_TTL_MS,
+    });
+    return "";
+  })();
+
+  adapterInFlight.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    adapterInFlight.delete(cacheKey);
   }
-  return "";
 }
 
 export function getProtocolConfig(protocolId: string): ProtocolConfig {

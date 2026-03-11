@@ -47,6 +47,26 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 500): P
   throw new Error("Unreachable");
 }
 
+async function resolvePoolAndGaugeFromConfig(poolConfig: NonNullable<ReturnType<typeof getStakingPoolById>>): Promise<{ poolAddress: string; gaugeAddress: string }> {
+  const poolAddress = poolConfig.poolAddress && poolConfig.poolAddress !== ethers.ZeroAddress
+    ? poolConfig.poolAddress
+    : await withRetry(() =>
+      getPoolAddress(poolConfig.tokenA.address, poolConfig.tokenB.address, poolConfig.stable)
+    );
+  if (!poolAddress || poolAddress === ethers.ZeroAddress) {
+    throw new Error(`Pool not found on-chain for ${poolConfig.name}`);
+  }
+
+  const gaugeAddress = poolConfig.gaugeAddress && poolConfig.gaugeAddress !== ethers.ZeroAddress
+    ? poolConfig.gaugeAddress
+    : await withRetry(() => getGaugeForPool(poolAddress));
+  if (!gaugeAddress || gaugeAddress === ethers.ZeroAddress) {
+    throw new Error(`Gauge not found for pool ${poolConfig.name}`);
+  }
+
+  return { poolAddress, gaugeAddress };
+}
+
 export async function executeEnterStrategy(
   req: PrepareEnterStrategyRequest
 ): Promise<PrepareEnterStrategyResponse> {
@@ -70,36 +90,32 @@ export async function executeEnterStrategy(
   console.log(`[ENTER] requested amountA=${amountADesired}, amountB=${amountBDesired}`);
   console.log(`[ENTER] executor=${executorAddress}`);
 
-  // Cap amounts to user's actual on-chain balance to avoid TransferFromFailed
-  if (!isNativeETH(poolConfig.tokenA.address)) {
-    const balA: bigint = await withRetry(async () => {
-      const c = getContract(poolConfig.tokenA.address, ERC20_ABI, "base");
-      return c.balanceOf(req.userAddress) as Promise<bigint>;
-    }).catch(() => amountADesired);
-    console.log(`[ENTER] ${poolConfig.tokenA.symbol} balance=${balA}, desired=${amountADesired}, capped=${amountADesired > balA}`);
-    if (amountADesired > balA) amountADesired = balA;
-  }
-  if (!isNativeETH(poolConfig.tokenB.address)) {
-    const balB: bigint = await withRetry(async () => {
-      const c = getContract(poolConfig.tokenB.address, ERC20_ABI, "base");
-      return c.balanceOf(req.userAddress) as Promise<bigint>;
-    }).catch(() => amountBDesired);
-    console.log(`[ENTER] ${poolConfig.tokenB.symbol} balance=${balB}, desired=${amountBDesired}, capped=${amountBDesired > balB}`);
-    if (amountBDesired > balB) amountBDesired = balB;
-  }
+  // Cap amounts to user's actual on-chain balance to avoid TransferFromFailed.
+  // Fetch both token balances in parallel for faster prepare latency.
+  const [balAResult, balBResult] = await Promise.all([
+    !isNativeETH(poolConfig.tokenA.address)
+      ? withRetry(async () => {
+          const c = getContract(poolConfig.tokenA.address, ERC20_ABI, "base");
+          return c.balanceOf(req.userAddress) as Promise<bigint>;
+        }, 1, 250).catch(() => amountADesired)
+      : Promise.resolve(amountADesired),
+    !isNativeETH(poolConfig.tokenB.address)
+      ? withRetry(async () => {
+          const c = getContract(poolConfig.tokenB.address, ERC20_ABI, "base");
+          return c.balanceOf(req.userAddress) as Promise<bigint>;
+        }, 1, 250).catch(() => amountBDesired)
+      : Promise.resolve(amountBDesired),
+  ]);
 
-  // Resolve pool and gauge addresses on-chain (with retry for RPC flakiness)
-  const poolAddress = await withRetry(() =>
-    getPoolAddress(poolConfig.tokenA.address, poolConfig.tokenB.address, poolConfig.stable)
-  );
-  if (poolAddress === ethers.ZeroAddress) {
-    throw new Error(`Pool not found on-chain for ${poolConfig.name}`);
-  }
+  const balA = balAResult;
+  const balB = balBResult;
+  console.log(`[ENTER] ${poolConfig.tokenA.symbol} balance=${balA}, desired=${amountADesired}, capped=${amountADesired > balA}`);
+  console.log(`[ENTER] ${poolConfig.tokenB.symbol} balance=${balB}, desired=${amountBDesired}, capped=${amountBDesired > balB}`);
+  if (amountADesired > balA) amountADesired = balA;
+  if (amountBDesired > balB) amountBDesired = balB;
 
-  const gaugeAddress = await withRetry(() => getGaugeForPool(poolAddress));
-  if (gaugeAddress === ethers.ZeroAddress) {
-    throw new Error(`Gauge not found for pool ${poolConfig.name}`);
-  }
+  // Resolve pool and gauge addresses (prefer canonical config, fallback on-chain).
+  const { poolAddress, gaugeAddress } = await resolvePoolAndGaugeFromConfig(poolConfig);
 
   // Reject if either amount is effectively zero after capping
   if (amountADesired === 0n) {
@@ -139,13 +155,30 @@ export async function executeEnterStrategy(
   const erc20Iface = new ethers.Interface(ERC20_ABI);
   const executorIface = new ethers.Interface(PANORAMA_EXECUTOR_ABI);
 
-  // Step 1 - Approve tokenA to Executor (if not native ETH)
-  // Use MaxUint256 so approval only happens once per token
+  // Step 1/2 - Approvals for tokenA/tokenB to Executor (if non-native).
+  // Read allowances in parallel to reduce prepare latency.
+  const [allowanceA, allowanceB] = await Promise.all([
+    !isNativeETH(poolConfig.tokenA.address)
+      ? withRetry(async () => {
+          const c = getContract(poolConfig.tokenA.address, ERC20_ABI, "base");
+          return c.allowance(req.userAddress, executorAddress) as Promise<bigint>;
+        }, 1, 250).catch((e) => {
+          console.error(`[ENTER] allowance check ${poolConfig.tokenA.symbol} FAILED:`, e instanceof Error ? e.message : e);
+          return 0n;
+        })
+      : Promise.resolve(ethers.MaxUint256),
+    !isNativeETH(poolConfig.tokenB.address)
+      ? withRetry(async () => {
+          const c = getContract(poolConfig.tokenB.address, ERC20_ABI, "base");
+          return c.allowance(req.userAddress, executorAddress) as Promise<bigint>;
+        }, 1, 250).catch((e) => {
+          console.error(`[ENTER] allowance check ${poolConfig.tokenB.symbol} FAILED:`, e instanceof Error ? e.message : e);
+          return 0n;
+        })
+      : Promise.resolve(ethers.MaxUint256),
+  ]);
+
   if (!isNativeETH(poolConfig.tokenA.address)) {
-    const allowanceA: bigint = await withRetry(async () => {
-      const c = getContract(poolConfig.tokenA.address, ERC20_ABI, "base");
-      return c.allowance(req.userAddress, executorAddress) as Promise<bigint>;
-    }, 4, 800).catch((e) => { console.error(`[ENTER] allowance check ${poolConfig.tokenA.symbol} FAILED:`, e instanceof Error ? e.message : e); return 0n; });
     console.log(`[ENTER] ${poolConfig.tokenA.symbol} allowance=${allowanceA.toString()}, needed=${amountADesired.toString()}, skip=${allowanceA >= amountADesired}`);
     if (allowanceA < amountADesired) {
       steps.push({
@@ -158,12 +191,7 @@ export async function executeEnterStrategy(
     }
   }
 
-  // Step 2 - Approve tokenB to Executor (if not native ETH)
   if (!isNativeETH(poolConfig.tokenB.address)) {
-    const allowanceB: bigint = await withRetry(async () => {
-      const c = getContract(poolConfig.tokenB.address, ERC20_ABI, "base");
-      return c.allowance(req.userAddress, executorAddress) as Promise<bigint>;
-    }, 4, 800).catch((e) => { console.error(`[ENTER] allowance check ${poolConfig.tokenB.symbol} FAILED:`, e instanceof Error ? e.message : e); return 0n; });
     console.log(`[ENTER] ${poolConfig.tokenB.symbol} allowance=${allowanceB.toString()}, needed=${amountBDesired.toString()}, skip=${allowanceB >= amountBDesired}`);
     if (allowanceB < amountBDesired) {
       steps.push({
@@ -207,7 +235,7 @@ export async function executeEnterStrategy(
   const lpAllowance: bigint = await withRetry(async () => {
     const lp = getContract(poolAddress, ERC20_ABI, "base");
     return lp.allowance(req.userAddress, executorAddress) as Promise<bigint>;
-  }, 4, 800).catch((e) => { console.error(`[ENTER] LP allowance check FAILED:`, e instanceof Error ? e.message : e); return 0n; });
+  }, 1, 250).catch((e) => { console.error(`[ENTER] LP allowance check FAILED:`, e instanceof Error ? e.message : e); return 0n; });
   console.log(`[ENTER] LP allowance=${lpAllowance.toString()}, needed=${estimatedLiquidity.toString()}, skip=${lpAllowance >= estimatedLiquidity}`);
   if (lpAllowance < estimatedLiquidity) {
     steps.push({

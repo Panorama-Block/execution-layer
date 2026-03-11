@@ -25,7 +25,7 @@ export interface GetPositionResponse {
   positions: StakingPosition[];
 }
 
-function withTimeout<T>(fn: () => Promise<T>, ms = 8000): Promise<T> {
+function withTimeout<T>(fn: () => Promise<T>, ms = 3500): Promise<T> {
   return Promise.race([
     fn(),
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
@@ -40,6 +40,26 @@ async function safeBigInt(fn: () => Promise<bigint>): Promise<bigint> {
   }
 }
 
+async function resolvePoolAndGauge(pool: ReturnType<typeof getEnabledStakingPools>[number]): Promise<{ poolAddress: string; gaugeAddress: string } | null> {
+  try {
+    const poolAddress = pool.poolAddress && pool.poolAddress !== ethers.ZeroAddress
+      ? pool.poolAddress
+      : await withTimeout(() => getPoolAddress(
+        pool.tokenA.address, pool.tokenB.address, pool.stable
+      ));
+    if (!poolAddress || poolAddress === ethers.ZeroAddress) return null;
+
+    const gaugeAddress = pool.gaugeAddress && pool.gaugeAddress !== ethers.ZeroAddress
+      ? pool.gaugeAddress
+      : await withTimeout(() => getGaugeForPool(poolAddress));
+    if (!gaugeAddress || gaugeAddress === ethers.ZeroAddress) return null;
+
+    return { poolAddress, gaugeAddress };
+  } catch {
+    return null;
+  }
+}
+
 export async function executeGetPosition(
   req: GetPositionRequest
 ): Promise<GetPositionResponse> {
@@ -49,17 +69,9 @@ export async function executeGetPosition(
   const [userAdapter, poolResults] = await Promise.all([
     getUserAdapterAddress(req.userAddress, "aerodrome"),
     Promise.all(enabledPools.map(async (pool) => {
-      try {
-        const poolAddress = await withTimeout(() => getPoolAddress(
-          pool.tokenA.address, pool.tokenB.address, pool.stable
-        ));
-        if (poolAddress === ethers.ZeroAddress) return null;
-        const gaugeAddress = await withTimeout(() => getGaugeForPool(poolAddress));
-        if (gaugeAddress === ethers.ZeroAddress) return null;
-        return { pool, poolAddress, gaugeAddress };
-      } catch {
-        return null;
-      }
+      const resolved = await resolvePoolAndGauge(pool);
+      if (!resolved) return null;
+      return { pool, ...resolved };
     })),
   ]);
 

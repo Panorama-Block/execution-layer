@@ -34,16 +34,20 @@ export async function executeClaimRewards(
   const chain = getChainConfig("base");
 
   // Resolve pool and gauge
-  const poolAddress = await getPoolAddress(
-    poolConfig.tokenA.address,
-    poolConfig.tokenB.address,
-    poolConfig.stable
-  );
+  const poolAddress = poolConfig.poolAddress && poolConfig.poolAddress !== ethers.ZeroAddress
+    ? poolConfig.poolAddress
+    : await getPoolAddress(
+      poolConfig.tokenA.address,
+      poolConfig.tokenB.address,
+      poolConfig.stable
+    );
   if (poolAddress === ethers.ZeroAddress) {
     throw new Error(`Pool not found on-chain for ${poolConfig.name}`);
   }
 
-  const gaugeAddress = await getGaugeForPool(poolAddress);
+  const gaugeAddress = poolConfig.gaugeAddress && poolConfig.gaugeAddress !== ethers.ZeroAddress
+    ? poolConfig.gaugeAddress
+    : await getGaugeForPool(poolAddress);
   if (gaugeAddress === ethers.ZeroAddress) {
     throw new Error(`Gauge not found for pool ${poolConfig.name}`);
   }

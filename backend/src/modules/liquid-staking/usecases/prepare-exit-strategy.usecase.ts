@@ -23,6 +23,10 @@ export interface PrepareExitStrategyResponse {
     poolAddress: string;
     gaugeAddress: string;
     lpAmount: string;
+    lpFromStaked: string;
+    lpFromWallet: string;
+    stakedBalance: string;
+    walletLpBalance: string;
     tokenA: { symbol: string; address: string; decimals: number };
     tokenB: { symbol: string; address: string; decimals: number };
     stable: boolean;
@@ -41,34 +45,46 @@ export async function executeExitStrategy(
   const executorAddress = chain.contracts.panoramaExecutor;
   const deadlineMinutes = req.deadlineMinutes ?? 20;
 
-  // Resolve pool and gauge addresses on-chain
-  const poolAddress = await getPoolAddress(
-    poolConfig.tokenA.address,
-    poolConfig.tokenB.address,
-    poolConfig.stable
-  );
+  // Resolve pool/gauge from canonical config first, fallback to on-chain.
+  const poolAddress = poolConfig.poolAddress && poolConfig.poolAddress !== ethers.ZeroAddress
+    ? poolConfig.poolAddress
+    : await getPoolAddress(
+      poolConfig.tokenA.address,
+      poolConfig.tokenB.address,
+      poolConfig.stable
+    );
   if (poolAddress === ethers.ZeroAddress) {
     throw new Error(`Pool not found on-chain for ${poolConfig.name}`);
   }
 
-  const gaugeAddress = await getGaugeForPool(poolAddress);
+  const gaugeAddress = poolConfig.gaugeAddress && poolConfig.gaugeAddress !== ethers.ZeroAddress
+    ? poolConfig.gaugeAddress
+    : await getGaugeForPool(poolAddress);
   if (gaugeAddress === ethers.ZeroAddress) {
     throw new Error(`Gauge not found for pool ${poolConfig.name}`);
   }
 
-  // Determine LP amount to unstake from user's adapter clone
+  // Determine LP amount source: staked in gauge and/or already in wallet LP.
+  const lpContract = getContract(poolAddress, ERC20_ABI, "base");
   const userAdapter = await getUserAdapterAddress(req.userAddress, "aerodrome");
   const stakedBalance = userAdapter
     ? await getStakedBalance(gaugeAddress, userAdapter).catch(() => 0n)
     : 0n;
-  const lpAmount = req.amount ? BigInt(req.amount) : stakedBalance;
+  const walletLpBalance = await lpContract.balanceOf(req.userAddress).catch(() => 0n);
+  const totalAvailable = stakedBalance + walletLpBalance;
+  const lpAmount = req.amount ? BigInt(req.amount) : totalAvailable;
 
   if (lpAmount === 0n) {
-    throw new Error(`No staked position found for ${poolConfig.name}`);
+    throw new Error(`No LP position found for ${poolConfig.name}`);
   }
-  if (lpAmount > stakedBalance) {
-    throw new Error(`Insufficient staked balance. Have: ${stakedBalance.toString()}, requested: ${lpAmount.toString()}`);
+  if (lpAmount > totalAvailable) {
+    throw new Error(
+      `Insufficient LP balance. Have total: ${totalAvailable.toString()} (staked=${stakedBalance.toString()}, wallet=${walletLpBalance.toString()}), requested: ${lpAmount.toString()}`,
+    );
   }
+
+  const lpFromStaked = lpAmount > stakedBalance ? stakedBalance : lpAmount;
+  const lpFromWallet = lpAmount - lpFromStaked;
 
   const steps: PreparedTransaction[] = [];
   const erc20Iface = new ethers.Interface(ERC20_ABI);
@@ -76,24 +92,25 @@ export async function executeExitStrategy(
   const protocolId = encodeProtocolId("aerodrome");
   const deadline = getDeadline(deadlineMinutes);
 
-  // Step 1 - Unstake LP from Gauge via PanoramaExecutor
-  const unstakeExtraData = ethers.AbiCoder.defaultAbiCoder().encode(["address"], [gaugeAddress]);
+  // Step 1 - Unstake only the portion currently staked in gauge (if any).
+  if (lpFromStaked > 0n) {
+    const unstakeExtraData = ethers.AbiCoder.defaultAbiCoder().encode(["address"], [gaugeAddress]);
 
-  steps.push({
-    to: executorAddress,
-    data: executorIface.encodeFunctionData("executeUnstake", [
-      protocolId,
-      poolAddress,
-      lpAmount,
-      unstakeExtraData,
-    ]),
-    value: "0",
-    chainId: chain.chainId,
-    description: `Unstake LP tokens from ${poolConfig.name} gauge`,
-  });
+    steps.push({
+      to: executorAddress,
+      data: executorIface.encodeFunctionData("executeUnstake", [
+        protocolId,
+        poolAddress,
+        lpFromStaked,
+        unstakeExtraData,
+      ]),
+      value: "0",
+      chainId: chain.chainId,
+      description: `Unstake LP tokens from ${poolConfig.name} gauge`,
+    });
+  }
 
   // Step 2 - Approve LP token to Executor for removeLiquidity
-  const lpContract = getContract(poolAddress, ERC20_ABI, "base");
   const currentAllowance: bigint = await lpContract.allowance(req.userAddress, executorAddress);
   if (currentAllowance < lpAmount) {
     steps.push({
@@ -137,6 +154,10 @@ export async function executeExitStrategy(
       poolAddress,
       gaugeAddress,
       lpAmount: lpAmount.toString(),
+      lpFromStaked: lpFromStaked.toString(),
+      lpFromWallet: lpFromWallet.toString(),
+      stakedBalance: stakedBalance.toString(),
+      walletLpBalance: walletLpBalance.toString(),
       tokenA: poolConfig.tokenA,
       tokenB: poolConfig.tokenB,
       stable: poolConfig.stable,

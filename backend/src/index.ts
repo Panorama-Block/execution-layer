@@ -1,17 +1,18 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import dotenv from "dotenv";
 import swaggerUi from "swagger-ui-express";
 import swaggerDoc from "./docs/swagger.json";
 import { executionRoutes } from "./routes/execution.routes";
+import { swapProviderRoutes } from "./routes/swap-provider.routes";
 import { stakingRoutes } from "./modules/liquid-staking/routes/staking.routes";
 import { swapRoutes } from "./modules/swap/routes/swap.routes";
 import { dcaRoutes } from "./modules/dca/routes/dca.routes";
 import { errorHandler } from "./middleware/errorHandler";
 import { rateLimiter } from "./middleware/rateLimiter";
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3010;
@@ -27,6 +28,7 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc, {
 }));
 
 app.use("/execution", executionRoutes);
+app.use("/swap", swapProviderRoutes);
 app.use("/staking", stakingRoutes);
 app.use("/swap", swapRoutes);
 app.use("/dca", dcaRoutes);

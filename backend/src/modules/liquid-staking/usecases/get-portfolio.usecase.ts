@@ -23,15 +23,74 @@ export interface GetPortfolioResponse {
   walletBalances: Record<string, string>;
 }
 
-function withTimeout<T>(fn: () => Promise<T>, ms = 8000): Promise<T> {
+const BALANCE_CACHE_TTL_MS = 90_000;
+const walletBalanceCache = new Map<string, { value: string; expiresAt: number }>();
+
+function getWalletBalanceCacheKey(userAddress: string, symbol: string): string {
+  return `${userAddress.toLowerCase()}:${symbol.toUpperCase()}`;
+}
+
+function getCachedWalletBalance(userAddress: string, symbol: string): string | null {
+  const key = getWalletBalanceCacheKey(userAddress, symbol);
+  const cached = walletBalanceCache.get(key);
+  if (!cached) return null;
+  if (Date.now() >= cached.expiresAt) {
+    walletBalanceCache.delete(key);
+    return null;
+  }
+  return cached.value;
+}
+
+function setCachedWalletBalance(userAddress: string, symbol: string, value: string): void {
+  const key = getWalletBalanceCacheKey(userAddress, symbol);
+  walletBalanceCache.set(key, {
+    value,
+    expiresAt: Date.now() + BALANCE_CACHE_TTL_MS,
+  });
+}
+
+function withTimeout<T>(fn: () => Promise<T>, ms = 3500): Promise<T> {
   return Promise.race([
     fn(),
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
   ]);
 }
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 500): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("retry failed");
+}
+
 async function safeBigInt(fn: () => Promise<bigint>): Promise<bigint> {
   try { return await withTimeout(fn); } catch { return 0n; }
+}
+
+async function resolvePoolAndGauge(pool: ReturnType<typeof getEnabledStakingPools>[number]): Promise<{ poolAddress: string; gaugeAddress: string } | null> {
+  try {
+    const poolAddress = pool.poolAddress && pool.poolAddress !== ethers.ZeroAddress
+      ? pool.poolAddress
+      : await withTimeout(() => getPoolAddress(pool.tokenA.address, pool.tokenB.address, pool.stable));
+    if (!poolAddress || poolAddress === ethers.ZeroAddress) return null;
+
+    const gaugeAddress = pool.gaugeAddress && pool.gaugeAddress !== ethers.ZeroAddress
+      ? pool.gaugeAddress
+      : await withTimeout(() => getGaugeForPool(poolAddress));
+    if (!gaugeAddress || gaugeAddress === ethers.ZeroAddress) return null;
+
+    return { poolAddress, gaugeAddress };
+  } catch {
+    return null;
+  }
 }
 
 export async function executeGetPortfolio(userAddress: string): Promise<GetPortfolioResponse> {
@@ -47,9 +106,27 @@ export async function executeGetPortfolio(userAddress: string): Promise<GetPortf
     if (!token) return;
     try {
       const contract = getContract(token.address, ERC20_ABI, "base");
-      const bal: bigint = await withTimeout(() => contract.balanceOf(userAddress) as Promise<bigint>, 6000);
-      walletBalances[symbol] = ethers.formatUnits(bal, token.decimals);
-    } catch {
+      const bal: bigint = await withRetry(
+        () => withTimeout(() => contract.balanceOf(userAddress) as Promise<bigint>, 2500),
+        1,
+        250,
+      );
+      const formatted = ethers.formatUnits(bal, token.decimals);
+      walletBalances[symbol] = formatted;
+      setCachedWalletBalance(userAddress, symbol, formatted);
+    } catch (err) {
+      const cached = getCachedWalletBalance(userAddress, symbol);
+      if (cached !== null) {
+        walletBalances[symbol] = cached;
+        console.warn(
+          `[PORTFOLIO] balance lookup failed for ${symbol} user=${userAddress}; using cached value=${cached}`,
+        );
+        return;
+      }
+      console.warn(
+        `[PORTFOLIO] balance lookup failed for ${symbol} user=${userAddress}:`,
+        err instanceof Error ? err.message : err
+      );
       walletBalances[symbol] = "0";
     }
   });
@@ -57,15 +134,9 @@ export async function executeGetPortfolio(userAddress: string): Promise<GetPortf
   const adapterPromise = getUserAdapterAddress(userAddress, "aerodrome");
 
   const poolDataPromises = enabledPools.map(async (pool) => {
-    try {
-      const poolAddress = await withTimeout(() => getPoolAddress(pool.tokenA.address, pool.tokenB.address, pool.stable));
-      if (poolAddress === ethers.ZeroAddress) return null;
-      const gaugeAddress = await withTimeout(() => getGaugeForPool(poolAddress));
-      if (gaugeAddress === ethers.ZeroAddress) return null;
-      return { pool, poolAddress, gaugeAddress };
-    } catch {
-      return null;
-    }
+    const resolved = await resolvePoolAndGauge(pool);
+    if (!resolved) return null;
+    return { pool, ...resolved };
   });
 
   const [, userAdapter, poolResults] = await Promise.all([

@@ -64,11 +64,21 @@ contract PanoramaExecutorTest is Test {
 
     function test_RemoveAdapter() public {
         executor.removeAdapter(AERODROME_ID);
+        vm.warp(block.timestamp + executor.ADMIN_DELAY());
+        executor.executeAdapterRemoval(AERODROME_ID);
         assertEq(executor.adapterImplementations(AERODROME_ID), address(0));
+    }
+
+    function test_RemoveAdapter_SchedulesFirst() public {
+        executor.removeAdapter(AERODROME_ID);
+        assertEq(executor.adapterImplementations(AERODROME_ID), address(adapter));
     }
 
     function test_TransferOwnership() public {
         executor.transferOwnership(user);
+        vm.warp(block.timestamp + executor.ADMIN_DELAY());
+        vm.prank(user);
+        executor.acceptOwnership();
         assertEq(executor.owner(), user);
     }
 
@@ -111,6 +121,40 @@ contract PanoramaExecutorTest is Test {
         vm.prank(user);
         vm.expectRevert(PanoramaExecutor.AdapterNotRegistered.selector);
         executor.executeSwap(keccak256("unknown"), address(tokenA), address(tokenB), 1e18, 0, "", block.timestamp + 1);
+    }
+
+    function test_ExecuteSwapFor_OnlyAuthorizedOperator() public {
+        vm.startPrank(user);
+        tokenA.approve(address(executor), 1e18);
+        vm.expectRevert(PanoramaExecutor.Unauthorized.selector);
+        executor.executeSwapFor(
+            AERODROME_ID, user, user, address(tokenA), address(tokenB), 1e18, 0, user, abi.encode(false), block.timestamp + 1
+        );
+        vm.stopPrank();
+    }
+
+    function test_ExecuteSwapFor_AuthorizedOperator_AfterDelay() public {
+        executor.setAuthorizedOperator(address(this), true);
+        vm.warp(block.timestamp + executor.ADMIN_DELAY());
+        executor.executeAuthorizedOperatorChange(address(this));
+
+        tokenA.mint(address(this), 5e18);
+        tokenA.approve(address(executor), 1e18);
+
+        uint256 amountOut = executor.executeSwapFor(
+            AERODROME_ID, user, address(this), address(tokenA), address(tokenB), 1e18, 0, user, abi.encode(false), block.timestamp + 1
+        );
+
+        assertEq(amountOut, 1e18);
+        assertEq(tokenB.balanceOf(user), 1000e18 + 1e18);
+    }
+
+    function test_ExecuteAddLiquidity_InvalidToken() public {
+        vm.prank(user);
+        vm.expectRevert(PanoramaExecutor.InvalidToken.selector);
+        executor.executeAddLiquidity(
+            AERODROME_ID, address(0), address(tokenB), false, 1e18, 1e18, 0, 0, "0x", block.timestamp + 1
+        );
     }
 
     // ========== EMERGENCY TESTS ==========

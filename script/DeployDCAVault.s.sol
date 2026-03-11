@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
 import {DCAVault} from "../contracts/core/DCAVault.sol";
+import {PanoramaExecutor} from "../contracts/core/PanoramaExecutor.sol";
 
 /**
  * @title DeployDCAVault
@@ -23,6 +24,7 @@ contract DeployDCAVault is Script {
 
         // Keeper = deployer wallet (change to dedicated keeper address if needed)
         DCAVault vault = new DCAVault(deployer, EXECUTOR);
+        PanoramaExecutor(payable(EXECUTOR)).setAuthorizedOperator(address(vault), true);
 
         vm.stopBroadcast();
 
@@ -31,7 +33,11 @@ contract DeployDCAVault is Script {
         console.log("Vault:   ", address(vault));
         console.log("Keeper:  ", deployer);
         console.log("Executor:", EXECUTOR);
-        console.log("\nNext step: add to backend/.env:");
+        console.log("\nNext step after 24h delay:");
+        console.log(
+            "call executeAuthorizedOperatorChange(vault) on PanoramaExecutor to activate DCA automation"
+        );
+        console.log("\nThen add to backend/.env:");
         console.log("DCA_VAULT_ADDRESS=", address(vault));
     }
 }

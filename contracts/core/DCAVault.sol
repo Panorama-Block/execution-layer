@@ -38,8 +38,14 @@ contract DCAVault {
     // ========== STATE ==========
 
     address public owner;
+    address public pendingOwner;
+    uint256 public ownershipTransferUnlockAt;
     address public keeper;
+    address public pendingKeeper;
+    uint256 public keeperChangeUnlockAt;
     address public executor;     // PanoramaExecutor
+
+    uint256 public constant ADMIN_DELAY = 1 days;
 
     uint256 public nextOrderId;
     mapping(uint256 => Order) public orders;
@@ -66,6 +72,9 @@ contract DCAVault {
     event Deposited(uint256 indexed orderId, address indexed owner, uint256 amount);
     event Withdrawn(uint256 indexed orderId, address indexed owner, uint256 amount);
     event KeeperUpdated(address indexed oldKeeper, address indexed newKeeper);
+    event KeeperChangeScheduled(address indexed oldKeeper, address indexed newKeeper, uint256 executeAfter);
+    event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner, uint256 executeAfter);
+    event OwnershipTransferred(address indexed oldOwner, address indexed newOwner);
 
     // ========== ERRORS ==========
 
@@ -79,6 +88,7 @@ contract DCAVault {
     error ZeroAddress();
     error ZeroInterval();
     error Reentrancy();
+    error DelayNotElapsed();
 
     // ========== MODIFIERS ==========
 
@@ -243,20 +253,28 @@ contract DCAVault {
         // Build protocolId for aerodrome
         bytes32 protocolId = keccak256(abi.encodePacked("aerodrome"));
 
-        // Call PanoramaExecutor.executeSwap — tokenOut goes to order owner
-        (bool success,) = executor.call(
+        // Call PanoramaExecutor.executeSwapFor so funds come from this vault
+        // while the position and proceeds remain attributed to the order owner.
+        (bool success, bytes memory returndata) = executor.call(
             abi.encodeWithSignature(
-                "executeSwap(bytes32,address,address,uint256,uint256,bytes,uint256)",
+                "executeSwapFor(bytes32,address,address,address,address,uint256,uint256,address,bytes,uint256)",
                 protocolId,
+                order.owner,
+                address(this),
                 order.tokenIn,
                 order.tokenOut,
                 order.amountPerSwap,
                 amountOutMin,
+                order.owner,
                 extraData,
                 deadline
             )
         );
-        require(success, "DCAVault: swap failed");
+        if (!success) {
+            assembly {
+                revert(add(returndata, 0x20), mload(returndata))
+            }
+        }
 
         emit OrderExecuted(orderId, order.owner, order.amountPerSwap, block.timestamp);
     }
@@ -299,13 +317,35 @@ contract DCAVault {
 
     function setKeeper(address newKeeper) external onlyOwner {
         if (newKeeper == address(0)) revert ZeroAddress();
-        emit KeeperUpdated(keeper, newKeeper);
-        keeper = newKeeper;
+        pendingKeeper = newKeeper;
+        keeperChangeUnlockAt = block.timestamp + ADMIN_DELAY;
+        emit KeeperChangeScheduled(keeper, newKeeper, keeperChangeUnlockAt);
+    }
+
+    function executeKeeperChange() external onlyOwner {
+        if (pendingKeeper == address(0)) revert ZeroAddress();
+        if (block.timestamp < keeperChangeUnlockAt) revert DelayNotElapsed();
+        emit KeeperUpdated(keeper, pendingKeeper);
+        keeper = pendingKeeper;
+        pendingKeeper = address(0);
+        keeperChangeUnlockAt = 0;
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        owner = newOwner;
+        pendingOwner = newOwner;
+        ownershipTransferUnlockAt = block.timestamp + ADMIN_DELAY;
+        emit OwnershipTransferStarted(owner, newOwner, ownershipTransferUnlockAt);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert Unauthorized();
+        if (block.timestamp < ownershipTransferUnlockAt) revert DelayNotElapsed();
+        address oldOwner = owner;
+        owner = pendingOwner;
+        pendingOwner = address(0);
+        ownershipTransferUnlockAt = 0;
+        emit OwnershipTransferred(oldOwner, owner);
     }
 
     // ========== INTERNAL ==========

@@ -387,10 +387,20 @@ async function ensureConnected() {
 async function trackTx(txHash, module, action) {
   if (!userAddress) return;
   try {
+    const timestamp = Date.now();
+    const message = [
+      "PanoramaBlock transaction submission",
+      `module:${module}`,
+      `user:${userAddress.toLowerCase()}`,
+      `txHash:${txHash.toLowerCase()}`,
+      `action:${action || module}`,
+      `timestamp:${timestamp}`,
+    ].join("\n");
+    const signature = await signer.signMessage(message);
     await fetch(`${API}/${module}/transaction/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ txHash, userAddress, action }),
+      body: JSON.stringify({ txHash, userAddress, action, timestamp, signature }),
     });
   } catch {
     // Non-critical — tracking is best-effort
@@ -792,10 +802,22 @@ async function loadProtocolInfo() {
 async function loadAllHistory() {
   if (!userAddress) return;
   try {
+    const timestamp = Date.now();
+    const historySignature = async (module) => signer.signMessage([
+      "PanoramaBlock history access",
+      `module:${module}`,
+      `user:${userAddress.toLowerCase()}`,
+      `timestamp:${timestamp}`,
+    ].join("\n"));
+    const [stakingSig, swapSig, dcaSig] = await Promise.all([
+      historySignature("staking"),
+      historySignature("swap"),
+      historySignature("dca"),
+    ]);
     const [stakingRes, swapRes, dcaRes] = await Promise.all([
-      fetch(`${API}/staking/history/${userAddress}`).then(r => r.json()).catch(() => ({ transactions: [] })),
-      fetch(`${API}/swap/history/${userAddress}`).then(r => r.json()).catch(() => ({ transactions: [] })),
-      fetch(`${API}/dca/history/${userAddress}`).then(r => r.json()).catch(() => ({ transactions: [] })),
+      fetch(`${API}/staking/history/${userAddress}?timestamp=${timestamp}&signature=${encodeURIComponent(stakingSig)}`).then(r => r.json()).catch(() => ({ transactions: [] })),
+      fetch(`${API}/swap/history/${userAddress}?timestamp=${timestamp}&signature=${encodeURIComponent(swapSig)}`).then(r => r.json()).catch(() => ({ transactions: [] })),
+      fetch(`${API}/dca/history/${userAddress}?timestamp=${timestamp}&signature=${encodeURIComponent(dcaSig)}`).then(r => r.json()).catch(() => ({ transactions: [] })),
     ]);
 
     const all = [

@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "fs";
+import { mkdir, writeFile } from "fs/promises";
+import path from "path";
 import { getProvider } from "../providers/chain.provider";
 
 export type TxStatus = "pending" | "confirmed" | "failed";
@@ -16,10 +19,13 @@ export interface StoredTransaction {
   confirmedAt?: string;
 }
 
-// In-memory store — sufficient for hackathon MVP.
-// Production would use PostgreSQL.
+const STORE_DIR = path.resolve(process.cwd(), "data");
+const STORE_FILE = path.join(STORE_DIR, "transactions.json");
+
 const transactions = new Map<string, StoredTransaction>();
 const userIndex = new Map<string, string[]>(); // userAddress → txHash[]
+let storeLoaded = false;
+let persistChain: Promise<void> = Promise.resolve();
 
 export function submitTransaction(
   txHash: string,
@@ -28,6 +34,8 @@ export function submitTransaction(
   action: string,
   chainId: number = 8453
 ): StoredTransaction {
+  ensureLoaded();
+
   const tx: StoredTransaction = {
     txHash: txHash.toLowerCase(),
     userAddress: userAddress.toLowerCase(),
@@ -47,15 +55,18 @@ export function submitTransaction(
 
   // Fire-and-forget: poll for confirmation
   pollConfirmation(tx.txHash).catch(() => {});
+  void persistStore();
 
   return tx;
 }
 
 export function getTransaction(txHash: string): StoredTransaction | undefined {
+  ensureLoaded();
   return transactions.get(txHash.toLowerCase());
 }
 
 export function getUserTransactions(userAddress: string): StoredTransaction[] {
+  ensureLoaded();
   const hashes = userIndex.get(userAddress.toLowerCase()) ?? [];
   return hashes
     .map(h => transactions.get(h))
@@ -64,6 +75,7 @@ export function getUserTransactions(userAddress: string): StoredTransaction[] {
 }
 
 async function pollConfirmation(txHash: string, maxAttempts = 30): Promise<void> {
+  ensureLoaded();
   const provider = getProvider("base");
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 5000));
@@ -77,10 +89,48 @@ async function pollConfirmation(txHash: string, maxAttempts = 30): Promise<void>
         tx.blockNumber = receipt.blockNumber;
         tx.gasUsed = receipt.gasUsed.toString();
         tx.confirmedAt = new Date().toISOString();
+        await persistStore();
         return;
       }
     } catch {
       // RPC error, keep polling
     }
   }
+}
+
+function ensureLoaded() {
+  if (storeLoaded) {
+    return;
+  }
+
+  storeLoaded = true;
+  loadStore();
+}
+
+function loadStore(): void {
+  try {
+    if (!existsSync(STORE_FILE)) {
+      return;
+    }
+    const raw = readFileSync(STORE_FILE, "utf8");
+    const parsed = JSON.parse(raw) as { transactions?: StoredTransaction[] };
+    for (const tx of parsed.transactions ?? []) {
+      transactions.set(tx.txHash, tx);
+      const list = userIndex.get(tx.userAddress) ?? [];
+      list.push(tx.txHash);
+      userIndex.set(tx.userAddress, list);
+    }
+  } catch {
+    // Missing or malformed store: start fresh.
+  }
+}
+
+async function persistStore(): Promise<void> {
+  const snapshot = JSON.stringify({ transactions: [...transactions.values()] }, null, 2);
+  persistChain = persistChain.then(async () => {
+    await mkdir(STORE_DIR, { recursive: true });
+    await writeFile(STORE_FILE, snapshot, "utf8");
+  }).catch(() => {});
+
+  await persistChain;
 }

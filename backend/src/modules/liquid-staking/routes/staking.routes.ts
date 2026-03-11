@@ -13,6 +13,7 @@ import {
 } from "../controllers/staking.controller";
 import { asyncHandler } from "../../../middleware/errorHandler";
 import { validateAddress, validateAmount, validateRequired, validateSlippage, validateTxHash } from "../../../middleware/validation";
+import { requireSignedHistoryAccess, requireSignedTxSubmission } from "../../../middleware/auth";
 
 export const stakingRoutes = Router();
 
@@ -61,6 +62,7 @@ stakingRoutes.post("/transaction/submit",
   validateRequired("txHash", "userAddress"),
   validateTxHash("txHash"),
   validateAddress("userAddress"),
+  requireSignedTxSubmission("staking"),
   asyncHandler(submitTx)
 );
 
@@ -71,5 +73,6 @@ stakingRoutes.get("/transaction/:txHash",
 
 stakingRoutes.get("/history/:userAddress",
   validateAddress("userAddress", "params"),
+  requireSignedHistoryAccess("staking"),
   asyncHandler(getTxHistory)
 );

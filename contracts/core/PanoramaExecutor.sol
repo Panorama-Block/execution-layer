@@ -12,20 +12,10 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
  * @dev Routes DeFi operations to per-user adapter clones (EIP-1167).
  *      Each user gets their own adapter clone, isolating positions and rewards.
  *      Users approve tokens to this contract. It transfers tokens to the user's
- *      adapter clone via the TokenTransfer[] parameter, then calls execute() on
- *      the adapter with a generic selector + data payload.
+ *      adapter clone, executes operations, and returns results.
  */
 contract PanoramaExecutor {
     using SafeTransferLib for address;
-
-    // ========== STRUCTS ==========
-
-    /// @notice Describes a token transfer from user to their adapter clone.
-    /// @dev token == address(0) means native ETH — skip pull (ETH forwarded via msg.value).
-    struct TokenTransfer {
-        address token;
-        uint256 amount;
-    }
 
     // ========== STATE ==========
 
@@ -41,22 +31,45 @@ contract PanoramaExecutor {
     event AdapterRegistered(bytes32 indexed protocolId, address indexed implementation);
     event AdapterRemoved(bytes32 indexed protocolId, address indexed oldImplementation);
     event UserAdapterCreated(address indexed user, bytes32 indexed protocolId, address adapter);
-    event OperationExecuted(
+    event SwapExecuted(
         address indexed user,
         bytes32 indexed protocolId,
-        bytes4 indexed selector,
-        bytes result
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOut
     );
+    event LiquidityAdded(
+        address indexed user,
+        bytes32 indexed protocolId,
+        address tokenA,
+        address tokenB,
+        bool stable,
+        uint256 liquidity
+    );
+    event LiquidityRemoved(
+        address indexed user,
+        bytes32 indexed protocolId,
+        address tokenA,
+        address tokenB,
+        bool stable,
+        uint256 amountA,
+        uint256 amountB
+    );
+    event StakeExecuted(address indexed user, bytes32 indexed protocolId, address lpToken, uint256 amount);
+    event UnstakeExecuted(address indexed user, bytes32 indexed protocolId, address lpToken, uint256 amount);
+    event RewardsClaimed(address indexed user, bytes32 indexed protocolId, address lpToken, uint256 rewardAmount);
 
     // ========== ERRORS ==========
 
     error Unauthorized();
     error AdapterNotRegistered();
     error DeadlineExpired();
+    error InvalidAmount();
+    error InsufficientOutput();
     error TransferFailed();
     error Reentrancy();
     error ZeroAddress();
-    error ExecutionFailed(bytes reason);
 
     // ========== MODIFIERS ==========
 
@@ -122,47 +135,126 @@ contract PanoramaExecutor {
         return Clones.predictDeterministicAddress(implementation, salt);
     }
 
-    // ========== EXECUTE ==========
+    // ========== SWAP ==========
 
-    /**
-     * @notice Generic execution entry point. Routes any operation to the user's adapter clone.
-     * @param protocolId Protocol identifier (e.g. keccak256("aerodrome")).
-     * @param selector   Operation selector (e.g. bytes4(keccak256("swap"))).
-     * @param transfers  ERC-20 tokens to pull from user into their adapter clone before execution.
-     *                   Entries with token == address(0) are skipped (native ETH is forwarded via msg.value).
-     * @param deadline   Transaction must execute before this timestamp.
-     * @param data       ABI-encoded operation parameters forwarded to the adapter.
-     * @return result    ABI-encoded return data from the adapter.
-     */
-    function execute(
+    function executeSwap(
         bytes32 protocolId,
-        bytes4  selector,
-        TokenTransfer[] calldata transfers,
-        uint256 deadline,
-        bytes   calldata data
-    ) external payable nonReentrant beforeDeadline(deadline) returns (bytes memory result) {
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOutMin,
+        bytes calldata extraData,
+        uint256 deadline
+    ) external payable nonReentrant beforeDeadline(deadline) returns (uint256 amountOut) {
+        if (amountIn == 0) revert InvalidAmount();
         address adapter = _getOrCreateUserAdapter(protocolId);
 
-        // Pull ERC-20 tokens from user into their adapter clone
-        for (uint256 i = 0; i < transfers.length; i++) {
-            if (transfers[i].token != address(0) && transfers[i].amount > 0) {
-                transfers[i].token.safeTransferFrom(msg.sender, adapter, transfers[i].amount);
-            }
+        if (tokenIn == address(0)) {
+            amountOut = IProtocolAdapter(adapter).swap{value: msg.value}(
+                tokenIn, tokenOut, amountIn, amountOutMin, msg.sender, extraData
+            );
+        } else {
+            tokenIn.safeTransferFrom(msg.sender, adapter, amountIn);
+            amountOut = IProtocolAdapter(adapter).swap(
+                tokenIn, tokenOut, amountIn, amountOutMin, msg.sender, extraData
+            );
         }
 
-        // Dispatch to adapter
-        (bool success, bytes memory returnData) = adapter.call{value: msg.value}(
-            abi.encodeWithSelector(IProtocolAdapter.execute.selector, selector, data)
+        if (amountOut < amountOutMin) revert InsufficientOutput();
+        emit SwapExecuted(msg.sender, protocolId, tokenIn, tokenOut, amountIn, amountOut);
+    }
+
+    // ========== LIQUIDITY ==========
+
+    function executeAddLiquidity(
+        bytes32 protocolId,
+        address tokenA,
+        address tokenB,
+        bool stable,
+        uint256 amountADesired,
+        uint256 amountBDesired,
+        uint256 amountAMin,
+        uint256 amountBMin,
+        bytes calldata extraData,
+        uint256 deadline
+    ) external payable nonReentrant beforeDeadline(deadline) returns (uint256 liquidity) {
+        if (amountADesired == 0 || amountBDesired == 0) revert InvalidAmount();
+        address adapter = _getOrCreateUserAdapter(protocolId);
+
+        tokenA.safeTransferFrom(msg.sender, adapter, amountADesired);
+        tokenB.safeTransferFrom(msg.sender, adapter, amountBDesired);
+
+        liquidity = IProtocolAdapter(adapter).addLiquidity(
+            tokenA, tokenB, stable, amountADesired, amountBDesired, amountAMin, amountBMin, msg.sender, extraData
         );
 
-        if (!success) {
-            revert ExecutionFailed(returnData);
-        }
+        emit LiquidityAdded(msg.sender, protocolId, tokenA, tokenB, stable, liquidity);
+    }
 
-        // Decode the outer ABI encoding added by the Solidity call
-        result = abi.decode(returnData, (bytes));
+    function executeRemoveLiquidity(
+        bytes32 protocolId,
+        address tokenA,
+        address tokenB,
+        bool stable,
+        uint256 liquidity,
+        uint256 amountAMin,
+        uint256 amountBMin,
+        bytes calldata extraData,
+        uint256 deadline
+    ) external nonReentrant beforeDeadline(deadline) returns (uint256 amountA, uint256 amountB) {
+        if (liquidity == 0) revert InvalidAmount();
+        address adapter = _getOrCreateUserAdapter(protocolId);
 
-        emit OperationExecuted(msg.sender, protocolId, selector, result);
+        address pool = abi.decode(extraData, (address));
+        pool.safeTransferFrom(msg.sender, adapter, liquidity);
+
+        (amountA, amountB) = IProtocolAdapter(adapter).removeLiquidity(
+            tokenA, tokenB, stable, liquidity, amountAMin, amountBMin, msg.sender, extraData
+        );
+
+        emit LiquidityRemoved(msg.sender, protocolId, tokenA, tokenB, stable, amountA, amountB);
+    }
+
+    // ========== STAKING ==========
+
+    function executeStake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData)
+        external
+        nonReentrant
+    {
+        if (amount == 0) revert InvalidAmount();
+        address adapter = _getOrCreateUserAdapter(protocolId);
+
+        lpToken.safeTransferFrom(msg.sender, adapter, amount);
+        IProtocolAdapter(adapter).stake(lpToken, amount, extraData);
+
+        emit StakeExecuted(msg.sender, protocolId, lpToken, amount);
+    }
+
+    function executeUnstake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData)
+        external
+        nonReentrant
+    {
+        if (amount == 0) revert InvalidAmount();
+        address adapter = _getOrCreateUserAdapter(protocolId);
+
+        IProtocolAdapter(adapter).unstake(lpToken, amount, extraData);
+
+        // Forward unstaked LP tokens back to user
+        lpToken.safeTransfer(msg.sender, amount);
+
+        emit UnstakeExecuted(msg.sender, protocolId, lpToken, amount);
+    }
+
+    // ========== CLAIM REWARDS ==========
+
+    function executeClaimRewards(bytes32 protocolId, address lpToken, bytes calldata extraData)
+        external
+        nonReentrant
+        returns (uint256 rewardAmount)
+    {
+        address adapter = _getOrCreateUserAdapter(protocolId);
+        rewardAmount = IProtocolAdapter(adapter).claimRewards(lpToken, msg.sender, extraData);
+        emit RewardsClaimed(msg.sender, protocolId, lpToken, rewardAmount);
     }
 
     // ========== ADMIN ==========
@@ -182,16 +274,6 @@ contract PanoramaExecutor {
         address old = adapterImplementations[protocolId];
         delete adapterImplementations[protocolId];
         emit AdapterRemoved(protocolId, old);
-    }
-
-    /**
-     * @notice Clear a user's adapter clone mapping, enabling re-creation with a new implementation.
-     * @dev Used during adapter migrations. The old clone continues to exist on-chain but will
-     *      no longer be used for new operations. Enumerate UserAdapterCreated events off-chain
-     *      to find all users that need clearing.
-     */
-    function clearUserAdapter(bytes32 protocolId, address user) external onlyOwner {
-        delete userAdapters[protocolId][user];
     }
 
     function transferOwnership(address newOwner) external onlyOwner {

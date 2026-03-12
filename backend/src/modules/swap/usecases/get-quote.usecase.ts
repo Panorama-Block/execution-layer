@@ -1,4 +1,4 @@
-import { aerodromeService } from "../../../shared/services/aerodrome.service";
+import { getQuote } from "../../../providers/aerodrome.provider";
 import { applySlippage } from "../../../utils/encoding";
 
 export interface SwapQuoteRequest {
@@ -21,12 +21,12 @@ export interface SwapQuoteResponse {
 }
 
 export async function executeGetSwapQuote(req: SwapQuoteRequest): Promise<SwapQuoteResponse> {
-  const amountIn   = BigInt(req.amountIn);
-  const stable     = req.stable ?? false;
+  const amountIn = BigInt(req.amountIn);
+  const stable = req.stable ?? false;
   const slippageBps = req.slippageBps ?? 50;
 
-  const { amountOut } = await aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, stable);
-  const amountOutMin  = applySlippage(amountOut, slippageBps);
+  const { amountOut } = await getQuote(req.tokenIn, req.tokenOut, amountIn, stable);
+  const amountOutMin = applySlippage(amountOut, slippageBps);
 
   const exchangeRate =
     amountIn > 0n

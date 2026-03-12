@@ -4,17 +4,6 @@ pragma solidity ^0.8.20;
 import {IERC20} from "../interfaces/IERC20.sol";
 import {SafeTransferLib} from "../libraries/SafeTransferLib.sol";
 
-interface IPanoramaExecutor {
-    struct TokenTransfer { address token; uint256 amount; }
-    function execute(
-        bytes32 protocolId,
-        bytes4  selector,
-        TokenTransfer[] calldata transfers,
-        uint256 deadline,
-        bytes calldata data
-    ) external payable returns (bytes memory);
-}
-
 /**
  * @title DCAVault
  * @notice Dollar-Cost Averaging vault for PanoramaBlock.
@@ -254,30 +243,20 @@ contract DCAVault {
         // Build protocolId for aerodrome
         bytes32 protocolId = keccak256(abi.encodePacked("aerodrome"));
 
-        // Encode swap data for AerodromeAdapter
-        bytes memory adapterData = abi.encode(
-            order.tokenIn,
-            order.tokenOut,
-            order.amountPerSwap,
-            amountOutMin,
-            order.owner,
-            order.stable
+        // Call PanoramaExecutor.executeSwap — tokenOut goes to order owner
+        (bool success,) = executor.call(
+            abi.encodeWithSignature(
+                "executeSwap(bytes32,address,address,uint256,uint256,bytes,uint256)",
+                protocolId,
+                order.tokenIn,
+                order.tokenOut,
+                order.amountPerSwap,
+                amountOutMin,
+                extraData,
+                deadline
+            )
         );
-
-        IPanoramaExecutor.TokenTransfer[] memory transfers = new IPanoramaExecutor.TokenTransfer[](1);
-        transfers[0] = IPanoramaExecutor.TokenTransfer({
-            token: order.tokenIn,
-            amount: order.amountPerSwap
-        });
-
-        // Call PanoramaExecutor.execute — tokenOut goes to order owner
-        IPanoramaExecutor(executor).execute(
-            protocolId,
-            bytes4(keccak256("swap")),
-            transfers,
-            deadline,
-            adapterData
-        );
+        require(success, "DCAVault: swap failed");
 
         emit OrderExecuted(orderId, order.owner, order.amountPerSwap, block.timestamp);
     }

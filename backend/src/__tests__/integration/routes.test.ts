@@ -224,7 +224,7 @@ describe("/staking/prepare-enter — executeEnterStrategy", () => {
   });
 
   it("throws when poolId is unknown", async () => {
-    mockGetStakingPoolById.mockReturnValueOnce(null);
+    mockGetStakingPoolById.mockReturnValueOnce(null as any);
 
     await expect(
       executeEnterStrategy({ userAddress: USER, poolId: "nonexistent", amountA: "1", amountB: "1" })

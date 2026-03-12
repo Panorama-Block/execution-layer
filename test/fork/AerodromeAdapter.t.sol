@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {PanoramaExecutor} from "../../contracts/core/PanoramaExecutor.sol";
 import {AerodromeAdapter} from "../../contracts/adapters/AerodromeAdapter.sol";
+import {AdapterSelectors} from "../../contracts/libraries/AdapterSelectors.sol";
 import {IAerodromeRouter} from "../../contracts/interfaces/IAerodromeRouter.sol";
 
 /**
@@ -37,21 +38,22 @@ contract AerodromeAdapterForkTest is Test {
 
     function test_SwapETHForUSDC() public {
         uint256 amountIn = 0.01 ether;
-        bytes memory extraData = abi.encode(false); // volatile pool
+
+        // For ETH swaps, no ERC-20 transfer needed — ETH is passed via msg.value
+        bytes memory adapterData = abi.encode(address(0), USDC_BASE, amountIn, 0, user, false);
+        PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](0);
 
         vm.startPrank(user);
-        uint256 amountOut = executor.executeSwap{value: amountIn}(
+        bytes memory result = executor.execute{value: amountIn}(
             AERODROME_ID,
-            address(0), // ETH
-            USDC_BASE,
-            amountIn,
-            0, // no min for test
-            extraData,
-            block.timestamp + 300
+            AdapterSelectors.SWAP,
+            transfers,
+            block.timestamp + 300,
+            adapterData
         );
         vm.stopPrank();
 
-        // USDC has 6 decimals, expect some reasonable output
+        uint256 amountOut = abi.decode(result, (uint256));
         assertGt(amountOut, 0, "Should receive USDC");
     }
 

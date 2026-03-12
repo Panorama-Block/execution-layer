@@ -168,10 +168,11 @@ execution-layer/
 │       │   ├── chains.ts         # Chain configs
 │       │   └── protocols.ts      # Protocol registry (registerProtocol / getProtocolConfig)
 │       ├── shared/
-│       │   ├── bundle-builder.ts # BundleBuilder + ADAPTER_SELECTORS
-│       │   ├── aerodrome-swap.ts # buildAerodromeSwapBundle()
+│       │   ├── bundle-builder.ts          # BundleBuilder + ADAPTER_SELECTORS
+│       │   ├── aerodrome-swap.ts          # buildAerodromeSwapBundle()
+│       │   ├── aerodrome-add-liquidity.ts # buildAerodromeAddLiquidityBundle()
 │       │   └── services/
-│       │       └── aerodrome.service.ts  # Singleton for all Aerodrome on-chain reads
+│       │       └── aerodrome.service.ts   # Singleton for all Aerodrome on-chain reads
 │       ├── providers/
 │       │   ├── chain.provider.ts
 │       │   ├── aerodrome.provider.ts
@@ -182,7 +183,7 @@ execution-layer/
 │       │   ├── abi.ts            # Contract ABIs
 │       │   └── encoding.ts       # encodeProtocolId, applySlippage, getDeadline
 │       ├── usecases/
-│       │   └── swap-provider.usecase.ts  # External Liquid Swap Service adapter
+│       │   └── swap-provider.usecase.ts  # Liquid Swap Service adapter — delegates to swap module
 │       └── modules/              # Service modules (one per product)
 │           ├── liquid-staking/
 │           │   ├── config/staking-pools.ts
@@ -477,6 +478,8 @@ builder.addExecute(protocolId, ADAPTER_SELECTORS.SWAP, transfers, deadline, adap
 | `applySlippage(amount, bps)` | `utils/encoding.ts` | 100 bps = 1% slippage |
 | `BundleBuilder` | `shared/bundle-builder.ts` | Fluent tx bundle builder |
 | `ADAPTER_SELECTORS` | `shared/bundle-builder.ts` | Solidity function selectors for IProtocolAdapter |
+| `buildAerodromeSwapBundle(params)` | `shared/aerodrome-swap.ts` | approve (if needed) → swap bundle |
+| `buildAerodromeAddLiquidityBundle(params)` | `shared/aerodrome-add-liquidity.ts` | approve A/B → addLiquidity → approve LP → stake bundle |
 | `registerProtocol(id, config)` | `config/protocols.ts` | Register a new protocol at runtime |
 | `getProtocolConfig(id)` | `config/protocols.ts` | Get config for a registered protocol |
 | `aerodromeService` | `shared/services/aerodrome.service.ts` | On-chain reads with retry/timeout/caching |

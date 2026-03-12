@@ -2,8 +2,8 @@ import { ethers } from "ethers";
 import { getChainConfig } from "../config/chains";
 import { BASE_TOKENS } from "../config/protocols";
 import { aerodromeService } from "../shared/services/aerodrome.service";
-import { buildAerodromeSwapBundle } from "../shared/aerodrome-swap";
-import { applySlippage, getDeadline } from "../utils/encoding";
+import { executeGetSwapQuote } from "../modules/swap/usecases/get-quote.usecase";
+import { executePrepareSwapBundle } from "../modules/swap/usecases/prepare-swap.usecase";
 import { PreparedTransaction } from "../types/transaction";
 
 const BASE_CHAIN_ID = 8453;
@@ -25,19 +25,17 @@ export async function executeSupportsRoute(params: {
   fromToken: string;
   toToken: string;
 }): Promise<{ supported: boolean; reason?: string }> {
-  // Only Base same-chain
   if (params.fromChainId !== BASE_CHAIN_ID || params.toChainId !== BASE_CHAIN_ID) {
     return { supported: false, reason: "Aerodrome only supports Base (8453)" };
   }
 
-  const tokenIn = resolveTokenAddress(params.fromToken);
+  const tokenIn  = resolveTokenAddress(params.fromToken);
   const tokenOut = resolveTokenAddress(params.toToken);
 
   if (!tokenIn || !tokenOut) {
     return { supported: false, reason: "Token not recognized on Base" };
   }
 
-  // Check if pool exists (try both volatile and stable)
   try {
     const volatilePool = await aerodromeService.getPoolAddress(tokenIn, tokenOut, false);
     const stablePool   = await aerodromeService.getPoolAddress(tokenIn, tokenOut, true);
@@ -54,7 +52,7 @@ export async function executeSupportsRoute(params: {
 
 /**
  * Get a swap quote from Aerodrome.
- * Returns amount out in wei + exchange rate.
+ * Delegates to the canonical get-quote usecase with best-of-two pool selection.
  */
 export async function executeSwapQuote(params: {
   fromToken: string;
@@ -76,49 +74,24 @@ export async function executeSwapQuote(params: {
     throw new Error("Token not supported on Aerodrome");
   }
 
-  const amountIn = BigInt(params.amount);
-
-  // Try volatile first, then stable — pick best output
-  let bestAmountOut = 0n;
-  let bestStable = false;
-
-  try {
-    const { amountOut: volatileOut } = await aerodromeService.getQuote(tokenIn, tokenOut, amountIn, false);
-    bestAmountOut = volatileOut;
-    bestStable = false;
-  } catch {
-    // no volatile pool
-  }
-
-  try {
-    const { amountOut: stableOut } = await aerodromeService.getQuote(tokenIn, tokenOut, amountIn, true);
-    if (stableOut > bestAmountOut) {
-      bestAmountOut = stableOut;
-      bestStable = true;
-    }
-  } catch {
-    // no stable pool
-  }
-
-  if (bestAmountOut === 0n) {
-    throw new Error("No liquidity available on Aerodrome for this pair");
-  }
-
-  const exchangeRate = amountIn > 0n ? Number(bestAmountOut) / Number(amountIn) : 0;
+  const result = await executeGetSwapQuote({
+    tokenIn, tokenOut, amountIn: params.amount, stable: "auto",
+  });
 
   return {
-    estimatedReceiveAmount: bestAmountOut.toString(),
-    bridgeFee: "0",
-    gasFee: "0",
-    exchangeRate,
-    estimatedDuration: 15, // ~2 blocks on Base
-    stable: bestStable,
+    estimatedReceiveAmount: result.amountOut,
+    bridgeFee:              "0",
+    gasFee:                 "0",
+    exchangeRate:           Number(result.exchangeRate),
+    estimatedDuration:      15,
+    stable:                 result.stable,
   };
 }
 
 /**
  * Prepare swap transactions for user signature.
- * Returns array of transactions: [approval (if needed), swap].
+ * Delegates to the canonical prepare-swap usecase.
+ * Returns PreparedTransaction[] (shape expected by Liquid Swap Service).
  */
 export async function executeSwapPrepare(params: {
   fromToken: string;
@@ -139,43 +112,30 @@ export async function executeSwapPrepare(params: {
     throw new Error("Token not supported on Aerodrome");
   }
 
-  const amountIn   = BigInt(params.amount);
-  const recipient  = params.receiver || params.sender;
-
-  // Get best quote (volatile vs stable)
-  const quoteResult = await executeSwapQuote({
-    fromToken: params.fromToken,
-    toToken: params.toToken,
-    amount: params.amount,
-    sender: params.sender,
+  // Resolve best pool type first
+  const quote = await executeGetSwapQuote({
+    tokenIn, tokenOut, amountIn: params.amount, stable: "auto",
   });
 
-  const amountOutMin = applySlippage(BigInt(quoteResult.estimatedReceiveAmount), 50); // 0.5%
-  const stable       = quoteResult.stable;
-  const deadline     = getDeadline(20);
-
-  const builder = await buildAerodromeSwapBundle({
-    userAddress:     recipient,
+  // Delegate bundle construction to the canonical usecase
+  const result = await executePrepareSwapBundle({
+    userAddress:     params.receiver || params.sender,
     tokenIn,
     tokenOut,
-    amountIn,
-    amountOutMin,
-    stable,
-    deadline,
-    executorAddress: chain.contracts.panoramaExecutor,
-    chainId:         BASE_CHAIN_ID,
+    amountIn:        params.amount,
+    stable:          quote.stable,
+    slippageBps:     50,
+    deadlineMinutes: 20,
   });
 
-  const allTxs: PreparedTransaction[] = builder.build("").steps;
-
   return {
-    transactions: allTxs,
+    transactions:      result.bundle.steps,
     estimatedDuration: 15,
     metadata: {
-      protocol: "aerodrome",
-      stable,
-      amountOutMin: amountOutMin.toString(),
-      executor: chain.contracts.panoramaExecutor,
+      protocol:    "aerodrome",
+      stable:      quote.stable,
+      amountOutMin: result.metadata.amountOutMin,
+      executor:    chain.contracts.panoramaExecutor,
     },
   };
 }
@@ -196,10 +156,6 @@ function resolveTokenAddress(token: string): string | null {
   }
 
   const upper = token.toUpperCase();
-  const info = BASE_TOKENS[upper];
+  const info  = BASE_TOKENS[upper];
   return info ? info.address : null;
-}
-
-function getTokenSymbol(address: string): string {
-  return ADDRESS_TO_SYMBOL[address.toLowerCase()] || address.slice(0, 10);
 }

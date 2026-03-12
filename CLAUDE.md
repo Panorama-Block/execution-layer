@@ -6,6 +6,10 @@ Guidelines for working with this codebase.
 
 Always respond in **Brazilian Portuguese (pt-BR)**.
 
+## Leitura obrigatória
+
+Sempre ler o `README.md` na raiz do projeto antes de iniciar qualquer tarefa. Ele contém a visão geral da arquitetura, estrutura de arquivos, endpoints da API e guias de expansão que complementam as regras deste arquivo.
+
 ## Repository layout
 
 ```
@@ -73,14 +77,31 @@ new BundleBuilder(chainId)
 
 **Nunca construir `PreparedTransaction` manualmente fora do BundleBuilder.**
 
-### Módulos de serviço
+### Módulos de serviço — forma pública canônica
 
 Cada produto tem seu módulo em `backend/src/modules/<nome>/`:
 - `usecases/` — lógica de negócio, monta bundles
 - `controllers/` — parsing de request/response HTTP
 - `routes/` — registra Express routes
 
+Os módulos de produto (`/swap`, `/staking`, `/dca`) são a **fonte de verdade canônica**. O `usecases/swap-provider.usecase.ts` é apenas um adapter de mapeamento de shape para o Liquid Swap Service — ele **delega** para os usecases de `/swap`, não reimplementa lógica.
+
 A lógica on-chain fica toda em `shared/services/aerodrome.service.ts` (singleton). Os usecases chamam o service, nunca fazem chamadas RPC diretas.
+
+### Helpers de bundle compartilhados
+
+Operações que requerem múltiplos steps devem usar os helpers em `shared/`:
+
+| Helper | Uso |
+|--------|-----|
+| `buildAerodromeSwapBundle(params)` | approve (se necessário) → swap |
+| `buildAerodromeAddLiquidityBundle(params)` | approve A/B → addLiquidity → approve LP → stake |
+
+**Nunca construir esses flows inline nos usecases.** Adicionar novo helper em `shared/` ao criar um novo flow com 3+ steps.
+
+### Quote com `stable: "auto"`
+
+`executeGetSwapQuote` em `modules/swap/usecases/get-quote.usecase.ts` aceita `stable: "auto"`. Quando passado, tenta volatile e stable, ignora silenciosamente pools inexistentes e retorna o melhor output com `stable: boolean` resolvido. Usar `"auto"` sempre que o caller não souber qual pool usar.
 
 ### Protocol registry
 

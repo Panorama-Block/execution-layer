@@ -86,4 +86,90 @@ describe("executeGetSwapQuote", () => {
     expect(result.tokenOut).toBe(TOKEN_OUT);
     expect(result.amountIn).toBe("250");
   });
+
+  // ===== stable: "auto" =====
+
+  describe('stable: "auto"', () => {
+    it("returns volatile result when volatile > stable", async () => {
+      mockGetQuote
+        .mockResolvedValueOnce({ amountOut: 2000n, route: [] }) // volatile
+        .mockResolvedValueOnce({ amountOut: 1500n, route: [] }); // stable
+
+      const result = await executeGetSwapQuote({
+        tokenIn: TOKEN_IN, tokenOut: TOKEN_OUT, amountIn: "1000", stable: "auto",
+      });
+
+      expect(result.stable).toBe(false);
+      expect(result.amountOut).toBe("2000");
+    });
+
+    it("returns stable result when stable > volatile", async () => {
+      mockGetQuote
+        .mockResolvedValueOnce({ amountOut: 900n, route: [] })  // volatile
+        .mockResolvedValueOnce({ amountOut: 1200n, route: [] }); // stable
+
+      const result = await executeGetSwapQuote({
+        tokenIn: TOKEN_IN, tokenOut: TOKEN_OUT, amountIn: "1000", stable: "auto",
+      });
+
+      expect(result.stable).toBe(true);
+      expect(result.amountOut).toBe("1200");
+    });
+
+    it("uses volatile when stable pool throws", async () => {
+      mockGetQuote
+        .mockResolvedValueOnce({ amountOut: 2000n, route: [] }) // volatile succeeds
+        .mockRejectedValueOnce(new Error("no stable pool"));     // stable fails
+
+      const result = await executeGetSwapQuote({
+        tokenIn: TOKEN_IN, tokenOut: TOKEN_OUT, amountIn: "1000", stable: "auto",
+      });
+
+      expect(result.stable).toBe(false);
+      expect(result.amountOut).toBe("2000");
+    });
+
+    it("uses stable when volatile pool throws", async () => {
+      mockGetQuote
+        .mockRejectedValueOnce(new Error("no volatile pool"))    // volatile fails
+        .mockResolvedValueOnce({ amountOut: 1800n, route: [] }); // stable succeeds
+
+      const result = await executeGetSwapQuote({
+        tokenIn: TOKEN_IN, tokenOut: TOKEN_OUT, amountIn: "1000", stable: "auto",
+      });
+
+      expect(result.stable).toBe(true);
+      expect(result.amountOut).toBe("1800");
+    });
+
+    it("throws when both pools throw", async () => {
+      mockGetQuote.mockRejectedValue(new Error("no pool"));
+
+      await expect(
+        executeGetSwapQuote({ tokenIn: TOKEN_IN, tokenOut: TOKEN_OUT, amountIn: "1000", stable: "auto" })
+      ).rejects.toThrow("No liquidity available on Aerodrome for this pair");
+    });
+
+    it("calls getQuote twice (volatile then stable)", async () => {
+      mockGetQuote.mockResolvedValue({ amountOut: 100n, route: [] });
+
+      await executeGetSwapQuote({
+        tokenIn: TOKEN_IN, tokenOut: TOKEN_OUT, amountIn: "100", stable: "auto",
+      });
+
+      expect(mockGetQuote).toHaveBeenCalledTimes(2);
+      expect(mockGetQuote).toHaveBeenNthCalledWith(1, TOKEN_IN, TOKEN_OUT, 100n, false);
+      expect(mockGetQuote).toHaveBeenNthCalledWith(2, TOKEN_IN, TOKEN_OUT, 100n, true);
+    });
+
+    it("returned stable field is boolean (resolved), not 'auto'", async () => {
+      mockGetQuote.mockResolvedValue({ amountOut: 100n, route: [] });
+
+      const result = await executeGetSwapQuote({
+        tokenIn: TOKEN_IN, tokenOut: TOKEN_OUT, amountIn: "100", stable: "auto",
+      });
+
+      expect(typeof result.stable).toBe("boolean");
+    });
+  });
 });

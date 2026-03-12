@@ -71,7 +71,7 @@ describe("executeClaimRewards", () => {
   });
 
   it("treats missing user adapter as 0 earned rewards and throws", async () => {
-    mockGetAdapter.mockResolvedValue(null);
+    mockGetAdapter.mockResolvedValue("");
     await expect(
       executeClaimRewards({ userAddress: USER, poolId: "weth-usdc-volatile" })
     ).rejects.toThrow("No rewards to claim");

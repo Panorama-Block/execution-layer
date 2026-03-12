@@ -1,0 +1,11 @@
+services:
+  execution-layer:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: panorama-execution-layer
+    ports:
+      - "3010:3010"
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped

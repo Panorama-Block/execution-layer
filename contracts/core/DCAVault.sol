@@ -9,13 +9,19 @@ import {SafeTransferLib} from "../libraries/SafeTransferLib.sol";
  * @notice Dollar-Cost Averaging vault for PanoramaBlock.
  * @dev Users deposit tokenIn and create DCA orders. A trusted keeper calls
  *      execute(orderId) at each interval, which approves PanoramaExecutor and
- *      triggers a swap. TokenOut is sent directly to the order owner.
+ *      triggers a swap. TokenOut is forwarded directly to the order owner.
  *
  *      Flow:
  *        1. User calls createOrder() with deposit amount
  *        2. User calls deposit() to top up balance (optional)
  *        3. Keeper calls execute(orderId) at each interval
  *        4. User calls cancel() + withdraw() at any time
+ *
+ *      Safety:
+ *        - Keeper and executor updates use a two-step propose/accept pattern
+ *        - Ownership transfer also uses two-step pattern
+ *        - Swap revert reasons are bubbled up verbatim
+ *        - TokenOut is forwarded to order.owner (not trapped in vault)
  */
 contract DCAVault {
     using SafeTransferLib for address;
@@ -38,8 +44,13 @@ contract DCAVault {
     // ========== STATE ==========
 
     address public owner;
+    address public pendingOwner;
+
     address public keeper;
+    address public pendingKeeper;
+
     address public executor;     // PanoramaExecutor
+    address public pendingExecutor;
 
     uint256 public nextOrderId;
     mapping(uint256 => Order) public orders;
@@ -60,12 +71,20 @@ contract DCAVault {
         uint256 indexed orderId,
         address indexed owner,
         uint256 amountIn,
+        uint256 amountOut,
         uint256 timestamp
     );
     event OrderCancelled(uint256 indexed orderId, address indexed owner);
     event Deposited(uint256 indexed orderId, address indexed owner, uint256 amount);
     event Withdrawn(uint256 indexed orderId, address indexed owner, uint256 amount);
+
+    // Two-step admin events
+    event KeeperProposed(address indexed proposed);
     event KeeperUpdated(address indexed oldKeeper, address indexed newKeeper);
+    event ExecutorProposed(address indexed proposed);
+    event ExecutorUpdated(address indexed oldExecutor, address indexed newExecutor);
+    event OwnershipProposed(address indexed proposed);
+    event OwnershipTransferred(address indexed oldOwner, address indexed newOwner);
 
     // ========== ERRORS ==========
 
@@ -79,6 +98,7 @@ contract DCAVault {
     error ZeroAddress();
     error ZeroInterval();
     error Reentrancy();
+    error NoPendingProposal();
 
     // ========== MODIFIERS ==========
 
@@ -207,8 +227,9 @@ contract DCAVault {
 
     /**
      * @notice Execute a DCA swap for the given order.
-     * @dev Only callable by the keeper. Approves PanoramaExecutor and calls executeSwap.
-     *      The swap sends tokenOut directly to the order owner.
+     * @dev Only callable by the keeper. Approves PanoramaExecutor, calls executeSwap,
+     *      then forwards the received tokenOut directly to order.owner.
+     *      Real revert reasons from PanoramaExecutor are bubbled up verbatim.
      * @param orderId Order to execute.
      * @param amountOutMin Minimum output enforced on PanoramaExecutor (slippage protection).
      * @param extraData ABI-encoded data forwarded to PanoramaExecutor.executeSwap (includes stable flag).
@@ -224,7 +245,6 @@ contract DCAVault {
 
         if (!order.active) revert OrderInactive();
         if (order.remainingSwaps == 1) {
-            // last swap — deactivate after execution
             order.active = false;
         } else if (order.remainingSwaps > 1) {
             order.remainingSwaps -= 1;
@@ -237,49 +257,63 @@ contract DCAVault {
         order.balance -= order.amountPerSwap;
         order.lastExecuted = block.timestamp;
 
-        // Approve executor to pull tokenIn
+        // Approve executor to pull tokenIn from this vault
         _approve(order.tokenIn, executor, order.amountPerSwap);
+
+        // Snapshot tokenOut balance before swap so we know how much arrived
+        uint256 balBefore = IERC20(order.tokenOut).balanceOf(address(this));
 
         // Build protocolId for aerodrome
         bytes32 protocolId = keccak256(abi.encodePacked("aerodrome"));
 
-        // Call PanoramaExecutor.executeSwap — tokenOut goes to order owner
-        (bool success,) = executor.call(
-            abi.encodeWithSignature(
-                "executeSwap(bytes32,address,address,uint256,uint256,bytes,uint256)",
-                protocolId,
-                order.tokenIn,
-                order.tokenOut,
-                order.amountPerSwap,
-                amountOutMin,
-                extraData,
-                deadline
-            )
+        // Encode swap data for AerodromeAdapter
+        bytes memory adapterData = abi.encode(
+            order.tokenIn,
+            order.tokenOut,
+            order.amountPerSwap,
+            amountOutMin,
+            order.owner,
+            order.stable
+        );
+
+        IPanoramaExecutor.TokenTransfer[] memory transfers = new IPanoramaExecutor.TokenTransfer[](1);
+        transfers[0] = IPanoramaExecutor.TokenTransfer({
+            token: order.tokenIn,
+            amount: order.amountPerSwap
+        });
+
+        // Call PanoramaExecutor.execute — tokenOut goes to order owner via adapter
+        // Typed call automatically propagates reverts from PanoramaExecutor
+        IPanoramaExecutor(executor).execute(
+            protocolId,
+            bytes4(keccak256("swap")),
+            transfers,
+            deadline,
+            adapterData
         );
         require(success, "DCAVault: swap failed");
 
-        emit OrderExecuted(orderId, order.owner, order.amountPerSwap, block.timestamp);
+        // Snapshot any tokenOut that landed in this vault and forward to owner
+        // (defensive: works whether adapter forwards directly or sends to vault)
+        uint256 balAfter = IERC20(order.tokenOut).balanceOf(address(this));
+        uint256 amountOut = balAfter - balBefore;
+        if (amountOut > 0) {
+            order.tokenOut.safeTransfer(order.owner, amountOut);
+        }
+
+        emit OrderExecuted(orderId, order.owner, order.amountPerSwap, amountOut, block.timestamp);
     }
 
     // ========== VIEWS ==========
 
-    /**
-     * @notice Returns all order IDs for a given user.
-     */
     function getUserOrders(address user) external view returns (uint256[] memory) {
         return _userOrders[user];
     }
 
-    /**
-     * @notice Returns full order data.
-     */
     function getOrder(uint256 orderId) external view returns (Order memory) {
         return orders[orderId];
     }
 
-    /**
-     * @notice Returns true if the order is ready to be executed.
-     */
     function isExecutable(uint256 orderId) external view returns (bool) {
         Order storage order = orders[orderId];
         return
@@ -288,24 +322,74 @@ contract DCAVault {
             block.timestamp >= order.lastExecuted + order.interval;
     }
 
-    /**
-     * @notice Returns timestamp of next allowed execution.
-     */
     function nextExecutionAt(uint256 orderId) external view returns (uint256) {
         return orders[orderId].lastExecuted + orders[orderId].interval;
     }
 
-    // ========== ADMIN ==========
+    // ========== ADMIN — TWO-STEP PATTERNS ==========
 
-    function setKeeper(address newKeeper) external onlyOwner {
+    // --- Keeper ---
+
+    /**
+     * @notice Propose a new keeper. Must be accepted by the proposed address.
+     */
+    function proposeKeeper(address newKeeper) external onlyOwner {
         if (newKeeper == address(0)) revert ZeroAddress();
-        emit KeeperUpdated(keeper, newKeeper);
-        keeper = newKeeper;
+        pendingKeeper = newKeeper;
+        emit KeeperProposed(newKeeper);
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
+    /**
+     * @notice Accept keeper role. Must be called by the proposed address.
+     */
+    function acceptKeeper() external {
+        if (msg.sender != pendingKeeper) revert Unauthorized();
+        emit KeeperUpdated(keeper, pendingKeeper);
+        keeper = pendingKeeper;
+        pendingKeeper = address(0);
+    }
+
+    // --- Executor ---
+
+    /**
+     * @notice Propose a new PanoramaExecutor address.
+     */
+    function proposeExecutor(address newExecutor) external onlyOwner {
+        if (newExecutor == address(0)) revert ZeroAddress();
+        pendingExecutor = newExecutor;
+        emit ExecutorProposed(newExecutor);
+    }
+
+    /**
+     * @notice Accept new executor. Must be called by the owner after proposing.
+     * @dev Intentionally requires owner re-confirmation (not the executor itself).
+     */
+    function acceptExecutor() external onlyOwner {
+        if (pendingExecutor == address(0)) revert NoPendingProposal();
+        emit ExecutorUpdated(executor, pendingExecutor);
+        executor = pendingExecutor;
+        pendingExecutor = address(0);
+    }
+
+    // --- Ownership ---
+
+    /**
+     * @notice Propose a new owner. Must be accepted by the proposed address.
+     */
+    function proposeOwner(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        owner = newOwner;
+        pendingOwner = newOwner;
+        emit OwnershipProposed(newOwner);
+    }
+
+    /**
+     * @notice Accept ownership. Must be called by the proposed address.
+     */
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert Unauthorized();
+        emit OwnershipTransferred(owner, pendingOwner);
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // ========== INTERNAL ==========

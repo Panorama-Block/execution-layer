@@ -1,10 +1,12 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../../../config/chains";
 import { getStakingPoolById } from "../config/staking-pools";
-import { encodeProtocolId, getDeadline } from "../../../utils/encoding";
-import { TransactionBundle } from "../../../types/transaction";
-import { aerodromeService } from "../../../shared/services/aerodrome.service";
-import { BundleBuilder, ADAPTER_SELECTORS } from "../../../shared/bundle-builder";
+import { getPoolAddress } from "../../../providers/aerodrome.provider";
+import { getGaugeForPool, getEarnedRewards } from "../../../providers/gauge.provider";
+import { PANORAMA_EXECUTOR_ABI } from "../../../utils/abi";
+import { encodeProtocolId } from "../../../utils/encoding";
+import { getUserAdapterAddress } from "../../../config/protocols";
+import { PreparedTransaction, TransactionBundle } from "../../../types/transaction";
 
 export interface PrepareClaimRewardsRequest {
   userAddress: string;
@@ -32,35 +34,57 @@ export async function executeClaimRewards(
   const chain = getChainConfig("base");
 
   // Resolve pool and gauge
-  const { poolAddress, gaugeAddress } = await aerodromeService.resolvePoolAndGauge(poolConfig);
+  const poolAddress = poolConfig.poolAddress && poolConfig.poolAddress !== ethers.ZeroAddress
+    ? poolConfig.poolAddress
+    : await getPoolAddress(
+      poolConfig.tokenA.address,
+      poolConfig.tokenB.address,
+      poolConfig.stable
+    );
+  if (poolAddress === ethers.ZeroAddress) {
+    throw new Error(`Pool not found on-chain for ${poolConfig.name}`);
+  }
+
+  const gaugeAddress = poolConfig.gaugeAddress && poolConfig.gaugeAddress !== ethers.ZeroAddress
+    ? poolConfig.gaugeAddress
+    : await getGaugeForPool(poolAddress);
+  if (gaugeAddress === ethers.ZeroAddress) {
+    throw new Error(`Gauge not found for pool ${poolConfig.name}`);
+  }
 
   // Get user's adapter clone address and check earned rewards
-  const userAdapter = await aerodromeService.getUserAdapterAddress(req.userAddress, "aerodrome");
+  const userAdapter = await getUserAdapterAddress(req.userAddress, "aerodrome");
   const earnedRewards = userAdapter
-    ? await aerodromeService.getEarnedRewards(gaugeAddress, userAdapter).catch(() => 0n)
+    ? await getEarnedRewards(gaugeAddress, userAdapter).catch(() => 0n)
     : 0n;
 
   if (earnedRewards === 0n) {
     throw new Error(`No rewards to claim for ${poolConfig.name}`);
   }
 
+  const executorAddress = chain.contracts.panoramaExecutor;
+  const executorIface = new ethers.Interface(PANORAMA_EXECUTOR_ABI);
   const protocolId = encodeProtocolId("aerodrome");
-  const deadline   = getDeadline(20);
-  const claimData  = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["address", "address", "address"],
-    [poolAddress, req.userAddress, gaugeAddress]
-  );
+  const extraData = ethers.AbiCoder.defaultAbiCoder().encode(["address"], [gaugeAddress]);
 
-  const builder = new BundleBuilder(chain.chainId);
-  builder.addExecute(
-    protocolId, ADAPTER_SELECTORS.CLAIM_REWARDS,
-    [], deadline, claimData, 0n,
-    chain.contracts.panoramaExecutor,
-    `Claim ${poolConfig.rewardToken.symbol} rewards from ${poolConfig.name}`
-  );
+  const steps: PreparedTransaction[] = [{
+    to: executorAddress,
+    data: executorIface.encodeFunctionData("executeClaimRewards", [
+      protocolId,
+      poolAddress,
+      extraData,
+    ]),
+    value: "0",
+    chainId: chain.chainId,
+    description: `Claim ${poolConfig.rewardToken.symbol} rewards from ${poolConfig.name}`,
+  }];
 
   return {
-    bundle: builder.build(`Claim rewards from ${poolConfig.name}`),
+    bundle: {
+      steps,
+      totalSteps: steps.length,
+      summary: `Claim rewards from ${poolConfig.name}`,
+    },
     metadata: {
       poolId: poolConfig.id,
       gaugeAddress,

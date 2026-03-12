@@ -6,6 +6,7 @@ import cors from "cors";
 import helmet from "helmet";
 import swaggerUi from "swagger-ui-express";
 import swaggerDoc from "./docs/swagger.json";
+import { executionRoutes } from "./routes/execution.routes";
 import { swapProviderRoutes } from "./routes/swap-provider.routes";
 import { stakingRoutes } from "./modules/liquid-staking/routes/staking.routes";
 import { swapRoutes } from "./modules/swap/routes/swap.routes";
@@ -26,7 +27,8 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc, {
   customSiteTitle: "PanoramaBlock API Docs",
 }));
 
-app.use("/provider/swap", swapProviderRoutes); // External Liquid Swap Service adapter
+app.use("/execution", executionRoutes);
+app.use("/swap", swapProviderRoutes);
 app.use("/staking", stakingRoutes);
 app.use("/swap", swapRoutes);
 app.use("/dca", dcaRoutes);

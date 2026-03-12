@@ -4,17 +4,6 @@ pragma solidity ^0.8.20;
 import {IERC20} from "../interfaces/IERC20.sol";
 import {SafeTransferLib} from "../libraries/SafeTransferLib.sol";
 
-interface IPanoramaExecutor {
-    struct TokenTransfer { address token; uint256 amount; }
-    function execute(
-        bytes32 protocolId,
-        bytes4  selector,
-        TokenTransfer[] calldata transfers,
-        uint256 deadline,
-        bytes calldata data
-    ) external payable returns (bytes memory);
-}
-
 /**
  * @title DCAVault
  * @notice Dollar-Cost Averaging vault for PanoramaBlock.
@@ -302,6 +291,7 @@ contract DCAVault {
             deadline,
             adapterData
         );
+        require(success, "DCAVault: swap failed");
 
         // Snapshot any tokenOut that landed in this vault and forward to owner
         // (defensive: works whether adapter forwards directly or sends to vault)

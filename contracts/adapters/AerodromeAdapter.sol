@@ -10,12 +10,13 @@ import {SafeTransferLib} from "../libraries/SafeTransferLib.sol";
 /**
  * @title AerodromeAdapter
  * @notice Protocol adapter for Aerodrome Finance on Base.
- * @dev Translates generic IProtocolAdapter calls into Aerodrome-specific interactions.
+ * @dev Implements IProtocolAdapter with flat typed parameters — no `bytes extraData`
+ *      indirection. Called via low-level dispatch from PanoramaExecutor.execute().
  *
  *      Aerodrome contracts on Base mainnet:
- *      - Router2: 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43
+ *      - Router2:        0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43
  *      - DefaultFactory: 0x420DD381b31aEf6683db6B902084cB0FFECe40Da
- *      - Voter: 0x16613524e02ad97eDfeF371bC883F2F5d6C480A5
+ *      - Voter:          0x16613524e02ad97eDfeF371bC883F2F5d6C480A5
  */
 contract AerodromeAdapter is IProtocolAdapter {
     using SafeTransferLib for address;
@@ -31,10 +32,6 @@ contract AerodromeAdapter is IProtocolAdapter {
     // ========== ERRORS ==========
 
     error OnlyExecutor();
-    error SwapFailed();
-    error LiquidityFailed();
-    error StakeFailed();
-    error UnstakeFailed();
     error NoGauge();
 
     // ========== MODIFIERS ==========
@@ -58,9 +55,7 @@ contract AerodromeAdapter is IProtocolAdapter {
 
     /**
      * @notice Execute a swap through Aerodrome Router2.
-     * @dev extraData encodes (bool stable) indicating pool type.
-     *      If tokenIn is address(0), swaps native ETH.
-     *      If tokenOut is address(0), swaps to native ETH.
+     * @param stable Whether to use a stable (correlated) or volatile pool.
      */
     function swap(
         address tokenIn,
@@ -68,28 +63,22 @@ contract AerodromeAdapter is IProtocolAdapter {
         uint256 amountIn,
         uint256 amountOutMin,
         address recipient,
-        bytes calldata extraData
+        bool stable
     ) external payable onlyExecutor returns (uint256 amountOut) {
-        bool stable = abi.decode(extraData, (bool));
-
-        // Build route
         IAerodromeRouter.Route[] memory routes = new IAerodromeRouter.Route[](1);
         address routeFrom = tokenIn == address(0) ? weth : tokenIn;
-        address routeTo = tokenOut == address(0) ? weth : tokenOut;
+        address routeTo   = tokenOut == address(0) ? weth : tokenOut;
         routes[0] = IAerodromeRouter.Route({from: routeFrom, to: routeTo, stable: stable, factory: factory});
 
         uint256 deadline = block.timestamp;
         uint256[] memory amounts;
 
         if (tokenIn == address(0)) {
-            // ETH -> Token
             amounts = router.swapExactETHForTokens{value: amountIn}(amountOutMin, routes, recipient, deadline);
         } else if (tokenOut == address(0)) {
-            // Token -> ETH
             _approveRouter(tokenIn, amountIn);
             amounts = router.swapExactTokensForETH(amountIn, amountOutMin, routes, recipient, deadline);
         } else {
-            // Token -> Token
             _approveRouter(tokenIn, amountIn);
             amounts = router.swapExactTokensForTokens(amountIn, amountOutMin, routes, recipient, deadline);
         }
@@ -99,10 +88,7 @@ contract AerodromeAdapter is IProtocolAdapter {
 
     // ========== LIQUIDITY ==========
 
-    /**
-     * @notice Add liquidity to an Aerodrome pool.
-     * @dev Returns LP tokens to the recipient.
-     */
+    /// @notice Add liquidity to an Aerodrome pool. Refunds unused token amounts to recipient.
     function addLiquidity(
         address tokenA,
         address tokenB,
@@ -111,25 +97,27 @@ contract AerodromeAdapter is IProtocolAdapter {
         uint256 amountBDesired,
         uint256 amountAMin,
         uint256 amountBMin,
-        address recipient,
-        bytes calldata /* extraData */
+        address recipient
     ) external payable onlyExecutor returns (uint256 liquidity) {
         _approveRouter(tokenA, amountADesired);
         _approveRouter(tokenB, amountBDesired);
 
-        (uint256 amountA, uint256 amountB, uint256 lp) = router.addLiquidity(
-            tokenA, tokenB, stable, amountADesired, amountBDesired, amountAMin, amountBMin, recipient, block.timestamp
+        (uint256 usedA, uint256 usedB, uint256 lp) = router.addLiquidity(
+            tokenA, tokenB, stable,
+            amountADesired, amountBDesired,
+            amountAMin, amountBMin,
+            recipient, block.timestamp
         );
         liquidity = lp;
 
-        // Refund unused tokens
-        _refundIfExcess(tokenA, amountADesired, amountA, recipient);
-        _refundIfExcess(tokenB, amountBDesired, amountB, recipient);
+        // Refund unused tokens directly to recipient
+        _refundIfExcess(tokenA, amountADesired, usedA, recipient);
+        _refundIfExcess(tokenB, amountBDesired, usedB, recipient);
     }
 
     /**
      * @notice Remove liquidity from an Aerodrome pool.
-     * @dev extraData encodes (address pool) - the LP token address.
+     * @param pool LP token address — needed to approve the router to spend it.
      */
     function removeLiquidity(
         address tokenA,
@@ -139,61 +127,60 @@ contract AerodromeAdapter is IProtocolAdapter {
         uint256 amountAMin,
         uint256 amountBMin,
         address recipient,
-        bytes calldata extraData
-    ) external payable onlyExecutor returns (uint256 amountA, uint256 amountB) {
-        address pool = abi.decode(extraData, (address));
+        address pool
+    ) external onlyExecutor returns (uint256 amountA, uint256 amountB) {
         _approve(pool, address(router), liquidity);
-
-        uint256 deadline = block.timestamp;
-
-        (amountA, amountB) =
-            router.removeLiquidity(tokenA, tokenB, stable, liquidity, amountAMin, amountBMin, recipient, deadline);
+        (amountA, amountB) = router.removeLiquidity(
+            tokenA, tokenB, stable,
+            liquidity, amountAMin, amountBMin,
+            recipient, block.timestamp
+        );
     }
 
     // ========== STAKING ==========
 
-    /**
-     * @notice Stake LP tokens in the corresponding Aerodrome gauge.
-     * @dev extraData encodes (address gauge). If gauge is address(0), it is looked up via Voter.
-     */
-    function stake(address lpToken, uint256 amount, bytes calldata extraData) external onlyExecutor returns (bool) {
-        address gauge = _resolveGauge(lpToken, extraData);
-        _approve(lpToken, gauge, amount);
-        IAerodromeGauge(gauge).deposit(amount);
+    /// @notice Stake LP tokens in the specified Aerodrome gauge.
+    function stake(
+        address lpToken,
+        uint256 amount,
+        address gauge
+    ) external onlyExecutor returns (bool) {
+        address resolvedGauge = _resolveGauge(lpToken, gauge);
+        _approve(lpToken, resolvedGauge, amount);
+        IAerodromeGauge(resolvedGauge).deposit(amount);
         return true;
     }
 
     /**
-     * @notice Unstake LP tokens from an Aerodrome gauge.
-     * @dev extraData encodes (address gauge). If gauge is address(0), it is looked up via Voter.
-     *      Note: The user must call this from the executor, which calls the gauge.
-     *      Gauge withdrawals send LP tokens back to msg.sender (this adapter),
-     *      so we forward them to the executor, which handles returning them to the user.
+     * @notice Unstake LP tokens from an Aerodrome gauge and forward to recipient.
+     * @dev The adapter is the depositor in the gauge. After withdrawal, LP tokens
+     *      are forwarded directly to recipient — no intermediate executor hop needed.
      */
-    function unstake(address lpToken, uint256 amount, bytes calldata extraData) external onlyExecutor returns (bool) {
-        address gauge = _resolveGauge(lpToken, extraData);
-        IAerodromeGauge(gauge).withdraw(amount);
-        // Forward unstaked LP tokens to executor (which returns them to user)
-        lpToken.safeTransfer(executor, amount);
+    function unstake(
+        address lpToken,
+        uint256 amount,
+        address gauge,
+        address recipient
+    ) external onlyExecutor returns (bool) {
+        address resolvedGauge = _resolveGauge(lpToken, gauge);
+        IAerodromeGauge(resolvedGauge).withdraw(amount);
+        lpToken.safeTransfer(recipient, amount);
         return true;
     }
 
     // ========== CLAIM REWARDS ==========
 
-    /**
-     * @notice Claim pending AERO rewards from a gauge and forward to recipient.
-     * @dev The adapter is the depositor in the gauge, so only it can claim.
-     */
-    function claimRewards(address lpToken, address recipient, bytes calldata extraData)
-        external
-        onlyExecutor
-        returns (uint256 rewardAmount)
-    {
-        address gauge = _resolveGauge(lpToken, extraData);
-        address rewardToken = IAerodromeGauge(gauge).rewardToken();
+    /// @notice Claim pending AERO rewards from a gauge and forward to recipient.
+    function claimRewards(
+        address lpToken,
+        address recipient,
+        address gauge
+    ) external onlyExecutor returns (uint256 rewardAmount) {
+        address resolvedGauge = _resolveGauge(lpToken, gauge);
+        address rewardToken = IAerodromeGauge(resolvedGauge).rewardToken();
 
         uint256 balBefore = IERC20(rewardToken).balanceOf(address(this));
-        IAerodromeGauge(gauge).getReward(address(this));
+        IAerodromeGauge(resolvedGauge).getReward(address(this));
         uint256 balAfter = IERC20(rewardToken).balanceOf(address(this));
 
         rewardAmount = balAfter - balBefore;
@@ -219,12 +206,13 @@ contract AerodromeAdapter is IProtocolAdapter {
         }
     }
 
-    function _resolveGauge(address lpToken, bytes calldata extraData) internal view returns (address gauge) {
-        gauge = abi.decode(extraData, (address));
+    /// @dev If gauge is address(0), looks it up via Voter. Reverts if not found.
+    function _resolveGauge(address lpToken, address gauge) internal view returns (address) {
         if (gauge == address(0)) {
             gauge = voter.gauges(lpToken);
         }
         if (gauge == address(0)) revert NoGauge();
+        return gauge;
     }
 
     // ========== FALLBACK ==========

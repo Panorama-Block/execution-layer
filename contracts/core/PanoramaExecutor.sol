@@ -1,28 +1,41 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {IProtocolAdapter} from "../interfaces/IProtocolAdapter.sol";
 import {IERC20} from "../interfaces/IERC20.sol";
 import {SafeTransferLib} from "../libraries/SafeTransferLib.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 /**
  * @title PanoramaExecutor
- * @notice Core entry point for PanoramaBlock on-chain execution.
- * @dev Routes DeFi operations to per-user adapter clones (EIP-1167).
- *      Each user gets their own adapter clone, isolating positions and rewards.
- *      Users approve tokens to this contract. It transfers tokens to the user's
- *      adapter clone, executes operations, and returns results.
+ * @notice Protocol-neutral entry point for PanoramaBlock on-chain execution.
+ * @dev Routes arbitrary DeFi operations to per-user adapter clones (EIP-1167).
+ *
+ *      The executor has NO knowledge of specific actions (swap, stake, etc.).
+ *      It only:
+ *        1. Creates/retrieves the user's adapter clone for the given protocol
+ *        2. Pulls ERC-20 tokens from the user into the adapter
+ *        3. Forwards the call to the adapter via low-level call(action, data)
+ *
+ *      Adding a new protocol: deploy adapter + registerAdapter(). No executor changes.
+ *      Adding a new action: implement it on the adapter. No executor changes.
  */
 contract PanoramaExecutor {
     using SafeTransferLib for address;
 
+    // ========== TYPES ==========
+
+    /// @notice A token transfer to pull from the caller into the adapter before execution.
+    struct Transfer {
+        address token;
+        uint256 amount;
+    }
+
     // ========== STATE ==========
 
     address public owner;
-    /// @notice Implementation contracts for each protocol (used as clone templates)
+    /// @notice Implementation contracts for each protocol (used as EIP-1167 clone templates).
     mapping(bytes32 => address) public adapterImplementations;
-    /// @notice Per-user adapter clones: protocolId => user => clone address
+    /// @notice Per-user adapter clones: protocolId => user => clone address.
     mapping(bytes32 => mapping(address => address)) public userAdapters;
     bool private _locked;
 
@@ -31,45 +44,23 @@ contract PanoramaExecutor {
     event AdapterRegistered(bytes32 indexed protocolId, address indexed implementation);
     event AdapterRemoved(bytes32 indexed protocolId, address indexed oldImplementation);
     event UserAdapterCreated(address indexed user, bytes32 indexed protocolId, address adapter);
-    event SwapExecuted(
+    /// @notice Emitted on every successful execute() call. The executor does not interpret result.
+    event OperationExecuted(
         address indexed user,
         bytes32 indexed protocolId,
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        uint256 amountOut
+        bytes4 indexed action,
+        bytes result
     );
-    event LiquidityAdded(
-        address indexed user,
-        bytes32 indexed protocolId,
-        address tokenA,
-        address tokenB,
-        bool stable,
-        uint256 liquidity
-    );
-    event LiquidityRemoved(
-        address indexed user,
-        bytes32 indexed protocolId,
-        address tokenA,
-        address tokenB,
-        bool stable,
-        uint256 amountA,
-        uint256 amountB
-    );
-    event StakeExecuted(address indexed user, bytes32 indexed protocolId, address lpToken, uint256 amount);
-    event UnstakeExecuted(address indexed user, bytes32 indexed protocolId, address lpToken, uint256 amount);
-    event RewardsClaimed(address indexed user, bytes32 indexed protocolId, address lpToken, uint256 rewardAmount);
 
     // ========== ERRORS ==========
 
     error Unauthorized();
     error AdapterNotRegistered();
     error DeadlineExpired();
-    error InvalidAmount();
-    error InsufficientOutput();
     error TransferFailed();
     error Reentrancy();
     error ZeroAddress();
+    error ExecutionFailed(bytes reason);
 
     // ========== MODIFIERS ==========
 
@@ -96,13 +87,13 @@ contract PanoramaExecutor {
         owner = msg.sender;
     }
 
-    // ========== USER ADAPTER MANAGEMENT ==========
+    // ========== ADAPTER MANAGEMENT ==========
 
     /**
      * @notice Get or create a per-user adapter clone for the calling user.
      * @dev Uses EIP-1167 minimal proxy (Clones.cloneDeterministic).
      *      The clone shares the implementation's immutable state (router, voter, etc.)
-     *      but has its own storage, so each user gets isolated gauge positions and rewards.
+     *      but has its own storage — each user gets isolated gauge positions and rewards.
      */
     function _getOrCreateUserAdapter(bytes32 protocolId) internal returns (address adapter) {
         adapter = userAdapters[protocolId][msg.sender];
@@ -116,10 +107,7 @@ contract PanoramaExecutor {
         }
     }
 
-    /**
-     * @notice Get the adapter clone address for a user (view, does not create).
-     * @return adapter The clone address, or address(0) if not yet created.
-     */
+    /// @notice Get the adapter clone address for a user (view, does not create).
     function getUserAdapter(bytes32 protocolId, address user) external view returns (address) {
         return userAdapters[protocolId][user];
     }
@@ -135,134 +123,60 @@ contract PanoramaExecutor {
         return Clones.predictDeterministicAddress(implementation, salt);
     }
 
-    // ========== SWAP ==========
+    // ========== CORE EXECUTE ==========
 
-    function executeSwap(
+    /**
+     * @notice Protocol-neutral execution entry point.
+     * @dev Pulls tokens from caller into the user's adapter clone, then calls
+     *      the adapter with bytes.concat(action, data). The executor has zero
+     *      knowledge of action semantics — fully protocol-agnostic.
+     *
+     * @param protocolId  bytes32 identifier for the protocol (e.g. keccak256("aerodrome"))
+     * @param action      bytes4 Solidity function selector on the adapter
+     * @param transfers   ERC-20 tokens to pull from caller into the adapter before execution
+     * @param deadline    Unix timestamp — reverts if exceeded
+     * @param data        ABI-encoded parameters for the adapter function (without selector)
+     * @return result     Raw bytes returned by the adapter
+     */
+    function execute(
         bytes32 protocolId,
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        uint256 amountOutMin,
-        bytes calldata extraData,
-        uint256 deadline
-    ) external payable nonReentrant beforeDeadline(deadline) returns (uint256 amountOut) {
-        if (amountIn == 0) revert InvalidAmount();
+        bytes4 action,
+        Transfer[] calldata transfers,
+        uint256 deadline,
+        bytes calldata data
+    ) external payable nonReentrant beforeDeadline(deadline) returns (bytes memory result) {
         address adapter = _getOrCreateUserAdapter(protocolId);
 
-        if (tokenIn == address(0)) {
-            amountOut = IProtocolAdapter(adapter).swap{value: msg.value}(
-                tokenIn, tokenOut, amountIn, amountOutMin, msg.sender, extraData
-            );
-        } else {
-            tokenIn.safeTransferFrom(msg.sender, adapter, amountIn);
-            amountOut = IProtocolAdapter(adapter).swap(
-                tokenIn, tokenOut, amountIn, amountOutMin, msg.sender, extraData
-            );
+        // Pull ERC-20 tokens from user into adapter
+        for (uint256 i = 0; i < transfers.length; i++) {
+            transfers[i].token.safeTransferFrom(msg.sender, adapter, transfers[i].amount);
         }
 
-        if (amountOut < amountOutMin) revert InsufficientOutput();
-        emit SwapExecuted(msg.sender, protocolId, tokenIn, tokenOut, amountIn, amountOut);
-    }
-
-    // ========== LIQUIDITY ==========
-
-    function executeAddLiquidity(
-        bytes32 protocolId,
-        address tokenA,
-        address tokenB,
-        bool stable,
-        uint256 amountADesired,
-        uint256 amountBDesired,
-        uint256 amountAMin,
-        uint256 amountBMin,
-        bytes calldata extraData,
-        uint256 deadline
-    ) external payable nonReentrant beforeDeadline(deadline) returns (uint256 liquidity) {
-        if (amountADesired == 0 || amountBDesired == 0) revert InvalidAmount();
-        address adapter = _getOrCreateUserAdapter(protocolId);
-
-        tokenA.safeTransferFrom(msg.sender, adapter, amountADesired);
-        tokenB.safeTransferFrom(msg.sender, adapter, amountBDesired);
-
-        liquidity = IProtocolAdapter(adapter).addLiquidity(
-            tokenA, tokenB, stable, amountADesired, amountBDesired, amountAMin, amountBMin, msg.sender, extraData
+        // Forward call to adapter — executor has no knowledge of action semantics
+        bool success;
+        (success, result) = adapter.call{value: msg.value}(
+            bytes.concat(action, data)
         );
 
-        emit LiquidityAdded(msg.sender, protocolId, tokenA, tokenB, stable, liquidity);
-    }
+        if (!success) {
+            if (result.length > 0) {
+                // Bubble up the revert reason verbatim from the adapter
+                assembly {
+                    revert(add(result, 32), mload(result))
+                }
+            }
+            revert ExecutionFailed(result);
+        }
 
-    function executeRemoveLiquidity(
-        bytes32 protocolId,
-        address tokenA,
-        address tokenB,
-        bool stable,
-        uint256 liquidity,
-        uint256 amountAMin,
-        uint256 amountBMin,
-        bytes calldata extraData,
-        uint256 deadline
-    ) external nonReentrant beforeDeadline(deadline) returns (uint256 amountA, uint256 amountB) {
-        if (liquidity == 0) revert InvalidAmount();
-        address adapter = _getOrCreateUserAdapter(protocolId);
-
-        address pool = abi.decode(extraData, (address));
-        pool.safeTransferFrom(msg.sender, adapter, liquidity);
-
-        (amountA, amountB) = IProtocolAdapter(adapter).removeLiquidity(
-            tokenA, tokenB, stable, liquidity, amountAMin, amountBMin, msg.sender, extraData
-        );
-
-        emit LiquidityRemoved(msg.sender, protocolId, tokenA, tokenB, stable, amountA, amountB);
-    }
-
-    // ========== STAKING ==========
-
-    function executeStake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData)
-        external
-        nonReentrant
-    {
-        if (amount == 0) revert InvalidAmount();
-        address adapter = _getOrCreateUserAdapter(protocolId);
-
-        lpToken.safeTransferFrom(msg.sender, adapter, amount);
-        IProtocolAdapter(adapter).stake(lpToken, amount, extraData);
-
-        emit StakeExecuted(msg.sender, protocolId, lpToken, amount);
-    }
-
-    function executeUnstake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData)
-        external
-        nonReentrant
-    {
-        if (amount == 0) revert InvalidAmount();
-        address adapter = _getOrCreateUserAdapter(protocolId);
-
-        IProtocolAdapter(adapter).unstake(lpToken, amount, extraData);
-
-        // Forward unstaked LP tokens back to user
-        lpToken.safeTransfer(msg.sender, amount);
-
-        emit UnstakeExecuted(msg.sender, protocolId, lpToken, amount);
-    }
-
-    // ========== CLAIM REWARDS ==========
-
-    function executeClaimRewards(bytes32 protocolId, address lpToken, bytes calldata extraData)
-        external
-        nonReentrant
-        returns (uint256 rewardAmount)
-    {
-        address adapter = _getOrCreateUserAdapter(protocolId);
-        rewardAmount = IProtocolAdapter(adapter).claimRewards(lpToken, msg.sender, extraData);
-        emit RewardsClaimed(msg.sender, protocolId, lpToken, rewardAmount);
+        emit OperationExecuted(msg.sender, protocolId, action, result);
     }
 
     // ========== ADMIN ==========
 
     /**
-     * @notice Register a protocol adapter implementation (used as clone template).
-     * @param protocolId Identifier for the protocol (e.g., keccak256("aerodrome")).
-     * @param implementation Address of the adapter implementation contract.
+     * @notice Register a protocol adapter implementation (used as EIP-1167 clone template).
+     * @param protocolId     Identifier for the protocol (e.g. keccak256("aerodrome")).
+     * @param implementation Address of the deployed adapter implementation.
      */
     function registerAdapter(bytes32 protocolId, address implementation) external onlyOwner {
         if (implementation == address(0)) revert ZeroAddress();

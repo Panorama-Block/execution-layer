@@ -18,6 +18,9 @@ contract AerodromeAdapterForkTest is Test {
     address constant WETH_BASE = 0x4200000000000000000000000000000000000006;
     address constant USDC_BASE = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
+    bytes4 public constant SWAP_SELECTOR =
+        bytes4(keccak256("swap(address,address,uint256,uint256,address,bool)"));
+
     PanoramaExecutor public executor;
     AerodromeAdapter public adapter;
     bytes32 public constant AERODROME_ID = keccak256("aerodrome");
@@ -26,32 +29,33 @@ contract AerodromeAdapterForkTest is Test {
 
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
-        // Deploy executor and adapter
         executor = new PanoramaExecutor();
         adapter = new AerodromeAdapter(AERODROME_ROUTER, AERODROME_VOTER, address(executor));
         executor.registerAdapter(AERODROME_ID, address(adapter));
 
-        // Fund user with ETH
         vm.deal(user, 10 ether);
     }
 
     function test_SwapETHForUSDC() public {
         uint256 amountIn = 0.01 ether;
-        bytes memory extraData = abi.encode(false); // volatile pool
 
-        vm.startPrank(user);
-        uint256 amountOut = executor.executeSwap{value: amountIn}(
-            AERODROME_ID,
-            address(0), // ETH
+        bytes memory swapData = abi.encode(
+            address(0), // ETH as tokenIn
             USDC_BASE,
             amountIn,
-            0, // no min for test
-            extraData,
-            block.timestamp + 300
+            uint256(0), // no min
+            user,
+            false // volatile pool
+        );
+        PanoramaExecutor.Transfer[] memory transfers = new PanoramaExecutor.Transfer[](0);
+
+        vm.startPrank(user);
+        bytes memory result = executor.execute{value: amountIn}(
+            AERODROME_ID, SWAP_SELECTOR, transfers, block.timestamp + 300, swapData
         );
         vm.stopPrank();
 
-        // USDC has 6 decimals, expect some reasonable output
+        uint256 amountOut = abi.decode(result, (uint256));
         assertGt(amountOut, 0, "Should receive USDC");
     }
 

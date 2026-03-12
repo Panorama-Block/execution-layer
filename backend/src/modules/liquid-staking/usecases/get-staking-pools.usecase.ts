@@ -1,10 +1,8 @@
-import { ethers } from "ethers";
 import { getEnabledStakingPools } from "../config/staking-pools";
-import { getPoolAddress } from "../../../providers/aerodrome.provider";
-import { getGaugeForPool, getRewardRate } from "../../../providers/gauge.provider";
 import { getContract } from "../../../providers/chain.provider";
 import { getProtocolConfig } from "../../../config/protocols";
 import { GAUGE_ABI, VOTER_ABI } from "../../../utils/abi";
+import { aerodromeService } from "../../../shared/services/aerodrome.service";
 
 interface StakingPoolInfo {
   id: string;
@@ -24,33 +22,40 @@ export interface GetStakingPoolsResponse {
   pools: StakingPoolInfo[];
 }
 
+let cache: { data: GetStakingPoolsResponse; expiresAt: number } | null = null;
+const CACHE_TTL_MS = 60 * 1000;
+
+async function safeCall<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await aerodromeService.withTimeout(fn);
+  } catch {
+    return fallback;
+  }
+}
+
 export async function executeGetStakingPools(): Promise<GetStakingPoolsResponse> {
+  if (cache && Date.now() < cache.expiresAt) {
+    return cache.data;
+  }
+
   const enabledPools = getEnabledStakingPools();
   const config = getProtocolConfig("aerodrome");
-  const pools: StakingPoolInfo[] = [];
 
-  for (const pool of enabledPools) {
+  const poolResults = await Promise.all(enabledPools.map(async (pool) => {
     try {
-      const poolAddress = await getPoolAddress(
-        pool.tokenA.address,
-        pool.tokenB.address,
-        pool.stable
-      );
-      if (poolAddress === ethers.ZeroAddress) continue;
-
-      const gaugeAddress = await getGaugeForPool(poolAddress);
-      if (gaugeAddress === ethers.ZeroAddress) continue;
+      const resolved = await aerodromeService.resolvePoolAndGauge(pool);
+      const { poolAddress, gaugeAddress } = resolved;
 
       const voter = getContract(config.contracts.voter, VOTER_ABI, "base");
       const gauge = getContract(gaugeAddress, GAUGE_ABI, "base");
 
       const [gaugeAlive, totalStaked, rewardRate] = await Promise.all([
-        voter.isAlive(gaugeAddress) as Promise<boolean>,
-        gauge.totalSupply() as Promise<bigint>,
-        getRewardRate(gaugeAddress),
+        safeCall(() => voter.isAlive(gaugeAddress) as Promise<boolean>, true),
+        safeCall(() => gauge.totalSupply() as Promise<bigint>, 0n),
+        safeCall(() => aerodromeService.getRewardRate(gaugeAddress), 0n),
       ]);
 
-      pools.push({
+      return {
         id: pool.id,
         name: pool.name,
         tokenA: pool.tokenA,
@@ -62,11 +67,19 @@ export async function executeGetStakingPools(): Promise<GetStakingPoolsResponse>
         rewardToken: pool.rewardToken,
         totalStaked: totalStaked.toString(),
         rewardRate: rewardRate.toString(),
-      });
-    } catch {
-      // Skip pools that fail to load
+      };
+    } catch (err) {
+      console.error(
+        `[STAKING/POOLS] Failed to resolve pool ${pool.name}:`,
+        err instanceof Error ? err.message : err
+      );
+      return null;
     }
-  }
+  }));
 
-  return { pools };
+  const data: GetStakingPoolsResponse = {
+    pools: poolResults.filter((pool): pool is StakingPoolInfo => pool !== null),
+  };
+  cache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
+  return data;
 }

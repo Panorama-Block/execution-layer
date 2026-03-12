@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {PanoramaExecutor} from "../../contracts/core/PanoramaExecutor.sol";
 import {AerodromeAdapter} from "../../contracts/adapters/AerodromeAdapter.sol";
+import {AdapterSelectors} from "../../contracts/libraries/AdapterSelectors.sol";
 import {IERC20} from "../../contracts/interfaces/IERC20.sol";
 import {IAerodromeGauge, IAerodromeVoter} from "../../contracts/interfaces/IAerodromeGauge.sol";
 
@@ -57,18 +58,13 @@ contract AerodromeForkTest is Test {
 
         uint256 wethBefore = IERC20(WETH).balanceOf(user);
 
+        bytes memory adapterData = abi.encode(WETH, USDC, amountIn, 0, user, false);
+        PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](1);
+        transfers[0] = PanoramaExecutor.TokenTransfer({ token: WETH, amount: amountIn });
+
         vm.startPrank(user);
         IERC20(WETH).approve(address(executor), amountIn);
-
-        executor.executeSwap(
-            AERODROME_ID,
-            WETH,
-            USDC,
-            amountIn,
-            0,
-            abi.encode(false), // volatile pool
-            deadline
-        );
+        executor.execute(AERODROME_ID, AdapterSelectors.SWAP, transfers, deadline, adapterData);
         vm.stopPrank();
 
         uint256 wethAfter = IERC20(WETH).balanceOf(user);
@@ -87,18 +83,13 @@ contract AerodromeForkTest is Test {
         // Deal USDC to user
         deal(USDC, user, 10_000e6);
 
+        bytes memory adapterData = abi.encode(USDC, WETH, amountIn, 0, user, false);
+        PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](1);
+        transfers[0] = PanoramaExecutor.TokenTransfer({ token: USDC, amount: amountIn });
+
         vm.startPrank(user);
         IERC20(USDC).approve(address(executor), amountIn);
-
-        executor.executeSwap(
-            AERODROME_ID,
-            USDC,
-            WETH,
-            amountIn,
-            0,
-            abi.encode(false), // volatile pool
-            deadline
-        );
+        executor.execute(AERODROME_ID, AdapterSelectors.SWAP, transfers, deadline, adapterData);
         vm.stopPrank();
 
         uint256 wethBalance = IERC20(WETH).balanceOf(user);
@@ -115,22 +106,15 @@ contract AerodromeForkTest is Test {
         deal(WETH, user, 0.1 ether);
         deal(USDC, user, 100e6);
 
+        bytes memory adapterData = abi.encode(WETH, USDC, false, amountWETH, amountUSDC, 0, 0, user);
+        PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](2);
+        transfers[0] = PanoramaExecutor.TokenTransfer({ token: WETH, amount: amountWETH });
+        transfers[1] = PanoramaExecutor.TokenTransfer({ token: USDC, amount: amountUSDC });
+
         vm.startPrank(user);
         IERC20(WETH).approve(address(executor), amountWETH);
         IERC20(USDC).approve(address(executor), amountUSDC);
-
-        executor.executeAddLiquidity(
-            AERODROME_ID,
-            WETH,
-            USDC,
-            false, // volatile pool
-            amountWETH,
-            amountUSDC,
-            0,
-            0,
-            "0x",
-            deadline
-        );
+        executor.execute(AERODROME_ID, AdapterSelectors.ADD_LIQUIDITY, transfers, deadline, adapterData);
         vm.stopPrank();
 
         // Get pool address and check LP balance
@@ -155,9 +139,13 @@ contract AerodromeForkTest is Test {
         IERC20(WETH).approve(address(executor), amountWETH);
         IERC20(USDC).approve(address(executor), amountUSDC);
 
-        executor.executeAddLiquidity(
-            AERODROME_ID, WETH, USDC, false, amountWETH, amountUSDC, 0, 0, "0x", deadline
-        );
+        {
+            bytes memory adapterData = abi.encode(WETH, USDC, false, amountWETH, amountUSDC, 0, 0, user);
+            PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](2);
+            transfers[0] = PanoramaExecutor.TokenTransfer({ token: WETH, amount: amountWETH });
+            transfers[1] = PanoramaExecutor.TokenTransfer({ token: USDC, amount: amountUSDC });
+            executor.execute(AERODROME_ID, AdapterSelectors.ADD_LIQUIDITY, transfers, deadline, adapterData);
+        }
 
         // Get pool and gauge
         address pool = IAerodromeFactory(FACTORY).getPool(WETH, USDC, false);
@@ -170,12 +158,18 @@ contract AerodromeForkTest is Test {
         // Approve LP tokens to executor and stake
         IERC20(pool).approve(address(executor), lpBalance);
 
-        executor.executeStake(AERODROME_ID, pool, lpBalance, abi.encode(gauge));
+        {
+            bytes memory stakeData = abi.encode(pool, lpBalance, gauge);
+            PanoramaExecutor.TokenTransfer[] memory stakeTransfers = new PanoramaExecutor.TokenTransfer[](1);
+            stakeTransfers[0] = PanoramaExecutor.TokenTransfer({ token: pool, amount: lpBalance });
+            executor.execute(AERODROME_ID, AdapterSelectors.STAKE, stakeTransfers, deadline, stakeData);
+        }
         vm.stopPrank();
 
-        // The adapter calls gauge.deposit(amount) so balance is credited to the adapter.
-        uint256 stakedBalance = IAerodromeGauge(gauge).balanceOf(address(adapter));
-        assertGt(stakedBalance, 0, "Adapter should have staked LP in gauge");
+        // The user's adapter clone is the depositor in the gauge
+        address userAdapter = executor.getUserAdapter(AERODROME_ID, user);
+        uint256 stakedBalance = IAerodromeGauge(gauge).balanceOf(userAdapter);
+        assertGt(stakedBalance, 0, "User adapter clone should have staked LP in gauge");
 
         // User LP balance should be zero after staking
         uint256 userLpAfter = IERC20(pool).balanceOf(user);
@@ -198,9 +192,13 @@ contract AerodromeForkTest is Test {
         IERC20(WETH).approve(address(executor), amountWETH);
         IERC20(USDC).approve(address(executor), amountUSDC);
 
-        executor.executeAddLiquidity(
-            AERODROME_ID, WETH, USDC, false, amountWETH, amountUSDC, 0, 0, "0x", deadline
-        );
+        {
+            bytes memory adapterData = abi.encode(WETH, USDC, false, amountWETH, amountUSDC, 0, 0, user);
+            PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](2);
+            transfers[0] = PanoramaExecutor.TokenTransfer({ token: WETH, amount: amountWETH });
+            transfers[1] = PanoramaExecutor.TokenTransfer({ token: USDC, amount: amountUSDC });
+            executor.execute(AERODROME_ID, AdapterSelectors.ADD_LIQUIDITY, transfers, deadline, adapterData);
+        }
 
         address pool = IAerodromeFactory(FACTORY).getPool(WETH, USDC, false);
         address gauge = IAerodromeVoter(VOTER).gauges(pool);
@@ -210,39 +208,46 @@ contract AerodromeForkTest is Test {
 
         // --- Step 3: Stake LP in gauge ---
         IERC20(pool).approve(address(executor), lpBalance);
-        executor.executeStake(AERODROME_ID, pool, lpBalance, abi.encode(gauge));
 
-        uint256 stakedBalance = IAerodromeGauge(gauge).balanceOf(address(adapter));
-        assertGt(stakedBalance, 0, "Full flow: adapter should have staked balance in gauge");
+        {
+            bytes memory stakeData = abi.encode(pool, lpBalance, gauge);
+            PanoramaExecutor.TokenTransfer[] memory stakeTransfers = new PanoramaExecutor.TokenTransfer[](1);
+            stakeTransfers[0] = PanoramaExecutor.TokenTransfer({ token: pool, amount: lpBalance });
+            executor.execute(AERODROME_ID, AdapterSelectors.STAKE, stakeTransfers, deadline, stakeData);
+        }
+
+        address userAdapter = executor.getUserAdapter(AERODROME_ID, user);
+        uint256 stakedBalance = IAerodromeGauge(gauge).balanceOf(userAdapter);
+        assertGt(stakedBalance, 0, "Full flow: adapter clone should have staked balance in gauge");
 
         // --- Step 4: Unstake LP from gauge ---
-        // The adapter withdraws from gauge, forwards LP to executor, executor forwards to user.
-        executor.executeUnstake(AERODROME_ID, pool, stakedBalance, abi.encode(gauge));
+        // The adapter withdraws from gauge and forwards LP directly to recipient (user).
+        {
+            bytes memory unstakeData = abi.encode(pool, stakedBalance, gauge, user);
+            PanoramaExecutor.TokenTransfer[] memory noTransfers = new PanoramaExecutor.TokenTransfer[](0);
+            executor.execute(AERODROME_ID, AdapterSelectors.UNSTAKE, noTransfers, deadline, unstakeData);
+        }
 
-        uint256 stakedAfterUnstake = IAerodromeGauge(gauge).balanceOf(address(adapter));
+        uint256 stakedAfterUnstake = IAerodromeGauge(gauge).balanceOf(userAdapter);
         assertEq(stakedAfterUnstake, 0, "Full flow: no staked balance after unstake");
 
-        // LP tokens should be returned to the user (executeUnstake forwards them)
+        // LP tokens should be returned to the user
         uint256 userLpForRemoval = IERC20(pool).balanceOf(user);
         assertGt(userLpForRemoval, 0, "Full flow: user should have LP after unstake");
 
         uint256 wethBefore = IERC20(WETH).balanceOf(user);
         uint256 usdcBefore = IERC20(USDC).balanceOf(user);
 
-        vm.startPrank(user);
+        // --- Step 5: Remove Liquidity ---
         IERC20(pool).approve(address(executor), userLpForRemoval);
 
-        executor.executeRemoveLiquidity(
-            AERODROME_ID,
-            WETH,
-            USDC,
-            false, // volatile
-            userLpForRemoval,
-            0,
-            0,
-            abi.encode(pool), // extraData = pool address
-            deadline
-        );
+        {
+            bytes memory removeData = abi.encode(WETH, USDC, false, userLpForRemoval, 0, 0, user, pool);
+            PanoramaExecutor.TokenTransfer[] memory removeTransfers = new PanoramaExecutor.TokenTransfer[](1);
+            removeTransfers[0] = PanoramaExecutor.TokenTransfer({ token: pool, amount: userLpForRemoval });
+            executor.execute(AERODROME_ID, AdapterSelectors.REMOVE_LIQUIDITY, removeTransfers, deadline, removeData);
+        }
+
         vm.stopPrank();
 
         uint256 wethAfter = IERC20(WETH).balanceOf(user);

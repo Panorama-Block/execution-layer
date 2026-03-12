@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {PanoramaExecutor} from "../contracts/core/PanoramaExecutor.sol";
 import {AerodromeAdapter} from "../contracts/adapters/AerodromeAdapter.sol";
+import {AdapterSelectors} from "../contracts/libraries/AdapterSelectors.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockRouter} from "./mocks/MockRouter.sol";
 
@@ -77,40 +78,88 @@ contract PanoramaExecutorTest is Test {
         executor.transferOwnership(address(0));
     }
 
+    function test_ClearUserAdapter() public {
+        // First create a user adapter by executing
+        uint256 amountIn = 100e18;
+        bytes memory adapterData = abi.encode(address(tokenA), address(tokenB), amountIn, 0, user, false);
+        PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](1);
+        transfers[0] = PanoramaExecutor.TokenTransfer({ token: address(tokenA), amount: amountIn });
+
+        vm.startPrank(user);
+        tokenA.approve(address(executor), amountIn);
+        executor.execute(AERODROME_ID, AdapterSelectors.SWAP, transfers, block.timestamp + 1, adapterData);
+        vm.stopPrank();
+
+        address userAdapter = executor.getUserAdapter(AERODROME_ID, user);
+        assertNotEq(userAdapter, address(0));
+
+        // Owner clears it
+        executor.clearUserAdapter(AERODROME_ID, user);
+        assertEq(executor.getUserAdapter(AERODROME_ID, user), address(0));
+    }
+
+    function test_ClearUserAdapter_OnlyOwner() public {
+        vm.prank(user);
+        vm.expectRevert(PanoramaExecutor.Unauthorized.selector);
+        executor.clearUserAdapter(AERODROME_ID, user);
+    }
+
     // ========== SWAP TESTS ==========
 
     function test_ExecuteSwap_ERC20() public {
         uint256 amountIn = 100e18;
-        bytes memory extraData = abi.encode(false); // volatile pool
+        bytes memory adapterData = abi.encode(address(tokenA), address(tokenB), amountIn, 0, user, false);
+
+        PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](1);
+        transfers[0] = PanoramaExecutor.TokenTransfer({ token: address(tokenA), amount: amountIn });
 
         vm.startPrank(user);
         tokenA.approve(address(executor), amountIn);
 
-        uint256 amountOut = executor.executeSwap(
-            AERODROME_ID, address(tokenA), address(tokenB), amountIn, 0, extraData, block.timestamp + 1
+        bytes memory result = executor.execute(
+            AERODROME_ID, AdapterSelectors.SWAP, transfers, block.timestamp + 1, adapterData
         );
         vm.stopPrank();
 
+        uint256 amountOut = abi.decode(result, (uint256));
         assertEq(amountOut, amountIn); // 1:1 mock rate
         assertEq(tokenB.balanceOf(user), 1000e18 + amountIn); // received output
     }
 
-    function test_ExecuteSwap_InvalidAmount() public {
+    function test_ExecuteSwap_ZeroAmount_Reverts() public {
+        bytes memory adapterData = abi.encode(address(tokenA), address(tokenB), 0, 0, user, false);
+        PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](0);
+
         vm.prank(user);
-        vm.expectRevert(PanoramaExecutor.InvalidAmount.selector);
-        executor.executeSwap(AERODROME_ID, address(tokenA), address(tokenB), 0, 0, "", block.timestamp + 1);
+        vm.expectRevert(); // AerodromeAdapter.SwapFailed
+        executor.execute(AERODROME_ID, AdapterSelectors.SWAP, transfers, block.timestamp + 1, adapterData);
     }
 
     function test_ExecuteSwap_DeadlineExpired() public {
+        bytes memory adapterData = abi.encode(address(tokenA), address(tokenB), 1e18, 0, user, false);
+        PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](0);
+
         vm.prank(user);
         vm.expectRevert(PanoramaExecutor.DeadlineExpired.selector);
-        executor.executeSwap(AERODROME_ID, address(tokenA), address(tokenB), 1e18, 0, "", block.timestamp - 1);
+        executor.execute(AERODROME_ID, AdapterSelectors.SWAP, transfers, block.timestamp - 1, adapterData);
     }
 
     function test_ExecuteSwap_AdapterNotRegistered() public {
+        bytes memory adapterData = abi.encode(address(tokenA), address(tokenB), 1e18, 0, user, false);
+        PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](0);
+
         vm.prank(user);
         vm.expectRevert(PanoramaExecutor.AdapterNotRegistered.selector);
-        executor.executeSwap(keccak256("unknown"), address(tokenA), address(tokenB), 1e18, 0, "", block.timestamp + 1);
+        executor.execute(keccak256("unknown"), AdapterSelectors.SWAP, transfers, block.timestamp + 1, adapterData);
+    }
+
+    function test_ExecuteUnknownSelector_Reverts() public {
+        bytes memory adapterData = abi.encode(address(tokenA));
+        PanoramaExecutor.TokenTransfer[] memory transfers = new PanoramaExecutor.TokenTransfer[](0);
+
+        vm.prank(user);
+        vm.expectRevert(); // AerodromeAdapter.UnknownSelector
+        executor.execute(AERODROME_ID, bytes4(keccak256("unknown")), transfers, block.timestamp + 1, adapterData);
     }
 
     // ========== EMERGENCY TESTS ==========

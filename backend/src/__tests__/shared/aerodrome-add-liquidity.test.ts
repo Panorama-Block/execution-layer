@@ -103,7 +103,7 @@ describe("buildAerodromeAddLiquidityBundle", () => {
     const builder = await buildAerodromeAddLiquidityBundle(BASE_PARAMS);
     const bundle  = builder.build("test");
 
-    const addLiqStep = bundle.steps.find(s => s.description.includes("Add liquidity"))!;
+    const addLiqStep = bundle.steps.find(s => s.description?.includes("Add liquidity"))!;
     expect(addLiqStep.data).toContain(ADAPTER_SELECTORS.ADD_LIQUIDITY.slice(2));
   });
 
@@ -148,7 +148,7 @@ describe("buildAerodromeAddLiquidityBundle", () => {
     const builder = await buildAerodromeAddLiquidityBundle(BASE_PARAMS);
     const bundle  = builder.build("test");
 
-    const execSteps = bundle.steps.filter(s => !s.description.toLowerCase().includes("approve"));
+    const execSteps = bundle.steps.filter(s => !s.description?.toLowerCase().includes("approve"));
     for (const step of execSteps) {
       expect(step.to.toLowerCase()).toBe(EXECUTOR.toLowerCase());
     }

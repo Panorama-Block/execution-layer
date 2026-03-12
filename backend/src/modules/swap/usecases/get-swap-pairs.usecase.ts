@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { getEnabledSwapPairs } from "../config/swap-pairs";
-import { getPoolAddress, getPoolInfo } from "../../../providers/aerodrome.provider";
+import { aerodromeService } from "../../../shared/services/aerodrome.service";
 
 interface SwapPairInfo {
   id: string;
@@ -22,10 +22,12 @@ export async function executeGetSwapPairs(): Promise<GetSwapPairsResponse> {
 
   for (const pair of enabledPairs) {
     try {
-      const poolAddress = await getPoolAddress(pair.tokenIn.address, pair.tokenOut.address, pair.stable);
+      const poolAddress = await aerodromeService.getPoolAddress(
+        pair.tokenIn.address, pair.tokenOut.address, pair.stable
+      );
       if (poolAddress === ethers.ZeroAddress) continue;
 
-      const info = await getPoolInfo(poolAddress);
+      const info = await aerodromeService.getPoolInfo(poolAddress);
 
       pairs.push({
         id: pair.id,

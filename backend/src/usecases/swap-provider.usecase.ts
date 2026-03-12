@@ -1,14 +1,13 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../config/chains";
 import { BASE_TOKENS } from "../config/protocols";
-import { getQuote } from "../providers/aerodrome.provider";
-import { getPoolAddress } from "../providers/aerodrome.provider";
-import { PANORAMA_EXECUTOR_ABI, ERC20_ABI } from "../utils/abi";
-import { encodeProtocolId, encodeSwapExtraData, getDeadline, isNativeETH, applySlippage } from "../utils/encoding";
+import { aerodromeService } from "../shared/services/aerodrome.service";
+import { BundleBuilder, ADAPTER_SELECTORS } from "../shared/bundle-builder";
+import { ERC20_ABI } from "../utils/abi";
+import { encodeProtocolId, isNativeETH, applySlippage, getDeadline } from "../utils/encoding";
 import { PreparedTransaction } from "../types/transaction";
 
 const BASE_CHAIN_ID = 8453;
-const WETH = "0x4200000000000000000000000000000000000006";
 const ETH_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 // Token address -> symbol lookup (reverse of BASE_TOKENS)
@@ -41,8 +40,8 @@ export async function executeSupportsRoute(params: {
 
   // Check if pool exists (try both volatile and stable)
   try {
-    const volatilePool = await getPoolAddress(tokenIn, tokenOut, false);
-    const stablePool = await getPoolAddress(tokenIn, tokenOut, true);
+    const volatilePool = await aerodromeService.getPoolAddress(tokenIn, tokenOut, false);
+    const stablePool   = await aerodromeService.getPoolAddress(tokenIn, tokenOut, true);
     const hasPool =
       volatilePool !== ethers.ZeroAddress || stablePool !== ethers.ZeroAddress;
 
@@ -71,7 +70,7 @@ export async function executeSwapQuote(params: {
   estimatedDuration: number;
   stable: boolean;
 }> {
-  const tokenIn = resolveTokenAddress(params.fromToken);
+  const tokenIn  = resolveTokenAddress(params.fromToken);
   const tokenOut = resolveTokenAddress(params.toToken);
 
   if (!tokenIn || !tokenOut) {
@@ -85,7 +84,7 @@ export async function executeSwapQuote(params: {
   let bestStable = false;
 
   try {
-    const { amountOut: volatileOut } = await getQuote(tokenIn, tokenOut, amountIn, false);
+    const { amountOut: volatileOut } = await aerodromeService.getQuote(tokenIn, tokenOut, amountIn, false);
     bestAmountOut = volatileOut;
     bestStable = false;
   } catch {
@@ -93,7 +92,7 @@ export async function executeSwapQuote(params: {
   }
 
   try {
-    const { amountOut: stableOut } = await getQuote(tokenIn, tokenOut, amountIn, true);
+    const { amountOut: stableOut } = await aerodromeService.getQuote(tokenIn, tokenOut, amountIn, true);
     if (stableOut > bestAmountOut) {
       bestAmountOut = stableOut;
       bestStable = true;
@@ -106,9 +105,7 @@ export async function executeSwapQuote(params: {
     throw new Error("No liquidity available on Aerodrome for this pair");
   }
 
-  const exchangeRate = amountIn > 0n
-    ? Number(bestAmountOut) / Number(amountIn)
-    : 0;
+  const exchangeRate = amountIn > 0n ? Number(bestAmountOut) / Number(amountIn) : 0;
 
   return {
     estimatedReceiveAmount: bestAmountOut.toString(),
@@ -133,18 +130,18 @@ export async function executeSwapPrepare(params: {
 }): Promise<{
   transactions: PreparedTransaction[];
   estimatedDuration: number;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }> {
-  const chain = getChainConfig("base");
-  const tokenIn = resolveTokenAddress(params.fromToken);
+  const chain    = getChainConfig("base");
+  const tokenIn  = resolveTokenAddress(params.fromToken);
   const tokenOut = resolveTokenAddress(params.toToken);
 
   if (!tokenIn || !tokenOut) {
     throw new Error("Token not supported on Aerodrome");
   }
 
-  const amountIn = BigInt(params.amount);
-  const receiver = params.receiver || params.sender;
+  const amountIn   = BigInt(params.amount);
+  const recipient  = params.receiver || params.sender;
 
   // Get best quote (volatile vs stable)
   const quoteResult = await executeSwapQuote({
@@ -154,56 +151,60 @@ export async function executeSwapPrepare(params: {
     sender: params.sender,
   });
 
-  const amountOutMin = applySlippage(BigInt(quoteResult.estimatedReceiveAmount), 50); // 0.5% slippage
-  const stable = quoteResult.stable;
+  const amountOutMin = applySlippage(BigInt(quoteResult.estimatedReceiveAmount), 50); // 0.5%
+  const stable       = quoteResult.stable;
+  const protocolId   = encodeProtocolId("aerodrome");
+  const deadline     = getDeadline(20);
 
   const transactions: PreparedTransaction[] = [];
 
   // 1. Approval transaction (if ERC20, not native ETH)
   if (!isNativeETH(tokenIn)) {
-    const erc20Iface = new ethers.Interface(ERC20_ABI);
-    const approveData = erc20Iface.encodeFunctionData("approve", [
-      chain.contracts.panoramaExecutor,
-      ethers.MaxUint256, // MaxUint256 approval (matches Uniswap pattern)
-    ]);
-
-    transactions.push({
-      to: tokenIn,
-      data: approveData,
-      value: "0",
-      chainId: BASE_CHAIN_ID,
-      description: `Approve ${getTokenSymbol(tokenIn)} for PanoramaExecutor`,
-    });
+    const { allowance } = await aerodromeService.checkAllowance(
+      tokenIn, params.sender, chain.contracts.panoramaExecutor, amountIn
+    );
+    if (allowance < amountIn) {
+      const erc20Iface = new ethers.Interface(ERC20_ABI);
+      transactions.push({
+        to: tokenIn,
+        data: erc20Iface.encodeFunctionData("approve", [chain.contracts.panoramaExecutor, ethers.MaxUint256]),
+        value: "0",
+        chainId: BASE_CHAIN_ID,
+        description: `Approve ${getTokenSymbol(tokenIn)} for PanoramaExecutor`,
+      });
+    }
   }
 
-  // 2. Swap transaction via PanoramaExecutor
-  const iface = new ethers.Interface(PANORAMA_EXECUTOR_ABI);
-  const protocolId = encodeProtocolId("aerodrome");
-  const extraData = encodeSwapExtraData(stable);
-  const deadline = getDeadline(20);
+  // 2. Swap transaction via PanoramaExecutor.execute()
+  const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+    ["address", "address", "uint256", "uint256", "address", "bool"],
+    [tokenIn, tokenOut, amountIn, amountOutMin, recipient, stable]
+  );
 
-  const swapData = iface.encodeFunctionData("executeSwap", [
+  const transfers = isNativeETH(tokenIn)
+    ? []
+    : [{ token: tokenIn, amount: amountIn }];
+
+  const ethValue = isNativeETH(tokenIn) ? amountIn : 0n;
+
+  const builder = new BundleBuilder(BASE_CHAIN_ID);
+  builder.addExecute(
     protocolId,
-    tokenIn,
-    tokenOut,
-    amountIn,
-    amountOutMin,
-    extraData,
+    ADAPTER_SELECTORS.SWAP,
+    transfers,
     deadline,
-  ]);
+    adapterData,
+    ethValue,
+    chain.contracts.panoramaExecutor,
+    `Swap ${getTokenSymbol(tokenIn)} → ${getTokenSymbol(tokenOut)} via Aerodrome`
+  );
+  const bundle = builder.build("");
 
-  const value = isNativeETH(tokenIn) ? amountIn.toString() : "0";
-
-  transactions.push({
-    to: chain.contracts.panoramaExecutor,
-    data: swapData,
-    value,
-    chainId: BASE_CHAIN_ID,
-    description: `Swap ${getTokenSymbol(tokenIn)} → ${getTokenSymbol(tokenOut)} via Aerodrome`,
-  });
+  // Prepend the approval if it was added
+  const allTxs: PreparedTransaction[] = [...transactions, ...bundle.steps];
 
   return {
-    transactions,
+    transactions: allTxs,
     estimatedDuration: 15,
     metadata: {
       protocol: "aerodrome",
@@ -221,17 +222,14 @@ export async function executeSwapPrepare(params: {
 function resolveTokenAddress(token: string): string | null {
   if (!token) return null;
 
-  // "native" means ETH
   if (token.toLowerCase() === "native") {
     return ETH_ADDRESS;
   }
 
-  // Already an address
   if (token.startsWith("0x") && token.length === 42) {
     return token;
   }
 
-  // Try symbol lookup
   const upper = token.toUpperCase();
   const info = BASE_TOKENS[upper];
   return info ? info.address : null;

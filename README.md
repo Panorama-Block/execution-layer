@@ -30,7 +30,7 @@ Built for the **Base Hackathon 2026**.
 │                   Backend (Express)                       │
 │                                                           │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐      │
-│  │Liquid Staking│ │  Swap (WIP)  │ │   DCA (WIP)  │      │
+│  │Liquid Staking│ │     Swap     │ │     DCA      │      │
 │  │   Module     │ │   Module     │ │   Module     │      │
 │  └──────────────┘ └──────────────┘ └──────────────┘      │
 │                                                           │
@@ -88,13 +88,13 @@ Each user gets their own adapter clone on first interaction (~45k gas, one-time)
 
 | Contract | Address |
 |---|---|
-| **PanoramaExecutor** | [`0x82b000512A19f7B762A23033aEA5AE00aBD0D2bC`](https://basescan.org/address/0x82b000512A19f7B762A23033aEA5AE00aBD0D2bC) |
-| **AerodromeAdapter** | [`0x187e499afB2DE75836800ad19147e0cFcd2Dc715`](https://basescan.org/address/0x187e499afB2DE75836800ad19147e0cFcd2Dc715) |
-| **DCAVault** | [`0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1`](https://basescan.org/address/0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1) |
+| **PanoramaExecutor** | [`0x79D671250f75631ca199d0Fa22b0071052214172`](https://basescan.org/address/0x79D671250f75631ca199d0Fa22b0071052214172) |
+| **AerodromeAdapter** | [`0xf919A01510591f38407AA4BBE5711646DB6819e3`](https://basescan.org/address/0xf919A01510591f38407AA4BBE5711646DB6819e3) |
+| **DCAVault** | [`0x748bC7b2c12F5c97F72d19d599118A7672cAc45B`](https://basescan.org/address/0x748bC7b2c12F5c97F72d19d599118A7672cAc45B) |
 
 - **PanoramaExecutor** is the single entry point for swap, liquidity, and staking operations. Creates per-user adapter clones (EIP-1167) for position isolation.
 - **AerodromeAdapter** (implementation) handles swap, liquidity, staking, and reward claiming on Aerodrome Finance. Each user gets their own clone of this adapter.
-- **DCAVault** stores user DCA orders and deposits. A trusted keeper calls `execute(orderId)` at each interval to trigger swaps via PanoramaExecutor.
+- **DCAVault** v2 — stores user DCA orders and deposits. A trusted keeper calls `execute(orderId)` at each interval. TokenOut is forwarded directly to the order owner. Admin functions use a two-step propose/accept pattern. Revert reasons from PanoramaExecutor are bubbled up verbatim.
 
 ### When do I need a new adapter?
 
@@ -191,6 +191,7 @@ execution-layer/
 │
 └── test/
     ├── PanoramaExecutor.t.sol    # Unit tests (13 tests)
+    ├── DCAVault.t.sol            # DCAVault unit tests (41 tests)
     ├── mocks/
     └── fork/
         ├── AerodromeAdapter.t.sol
@@ -230,12 +231,20 @@ The contracts are **already deployed**. Use these addresses in `backend/.env`:
 ```env
 PORT=3010
 BASE_RPC_URL=https://mainnet.base.org
-EXECUTOR_ADDRESS=0x82b000512A19f7B762A23033aEA5AE00aBD0D2bC
-AERODROME_ADAPTER_ADDRESS=0x187e499afB2DE75836800ad19147e0cFcd2Dc715
+EXECUTOR_ADDRESS=0x79D671250f75631ca199d0Fa22b0071052214172
+AERODROME_ADAPTER_ADDRESS=0xf919A01510591f38407AA4BBE5711646DB6819e3
+DCA_VAULT_ADDRESS=0x748bC7b2c12F5c97F72d19d599118A7672cAc45B
 ```
 
 ### 3. Run the backend
 
+**Via Docker (recommended):**
+```bash
+docker compose up -d --build
+# Container panorama-execution-layer → port 3010
+```
+
+**Or locally:**
 ```bash
 cd backend
 npm run dev
@@ -253,7 +262,7 @@ python3 -m http.server 5173
 ### 5. Run tests
 
 ```bash
-# Unit tests (no RPC needed)
+# Unit tests — PanoramaExecutor + DCAVault (no RPC needed)
 forge test -vv --no-match-path "test/fork/*"
 
 # Fork tests (against Base mainnet)

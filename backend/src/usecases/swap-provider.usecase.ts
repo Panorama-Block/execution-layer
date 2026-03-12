@@ -2,9 +2,8 @@ import { ethers } from "ethers";
 import { getChainConfig } from "../config/chains";
 import { BASE_TOKENS } from "../config/protocols";
 import { aerodromeService } from "../shared/services/aerodrome.service";
-import { BundleBuilder, ADAPTER_SELECTORS } from "../shared/bundle-builder";
-import { ERC20_ABI } from "../utils/abi";
-import { encodeProtocolId, isNativeETH, applySlippage, getDeadline } from "../utils/encoding";
+import { buildAerodromeSwapBundle } from "../shared/aerodrome-swap";
+import { applySlippage, getDeadline } from "../utils/encoding";
 import { PreparedTransaction } from "../types/transaction";
 
 const BASE_CHAIN_ID = 8453;
@@ -153,55 +152,21 @@ export async function executeSwapPrepare(params: {
 
   const amountOutMin = applySlippage(BigInt(quoteResult.estimatedReceiveAmount), 50); // 0.5%
   const stable       = quoteResult.stable;
-  const protocolId   = encodeProtocolId("aerodrome");
   const deadline     = getDeadline(20);
 
-  const transactions: PreparedTransaction[] = [];
-
-  // 1. Approval transaction (if ERC20, not native ETH)
-  if (!isNativeETH(tokenIn)) {
-    const { allowance } = await aerodromeService.checkAllowance(
-      tokenIn, params.sender, chain.contracts.panoramaExecutor, amountIn
-    );
-    if (allowance < amountIn) {
-      const erc20Iface = new ethers.Interface(ERC20_ABI);
-      transactions.push({
-        to: tokenIn,
-        data: erc20Iface.encodeFunctionData("approve", [chain.contracts.panoramaExecutor, ethers.MaxUint256]),
-        value: "0",
-        chainId: BASE_CHAIN_ID,
-        description: `Approve ${getTokenSymbol(tokenIn)} for PanoramaExecutor`,
-      });
-    }
-  }
-
-  // 2. Swap transaction via PanoramaExecutor.execute()
-  const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["address", "address", "uint256", "uint256", "address", "bool"],
-    [tokenIn, tokenOut, amountIn, amountOutMin, recipient, stable]
-  );
-
-  const transfers = isNativeETH(tokenIn)
-    ? []
-    : [{ token: tokenIn, amount: amountIn }];
-
-  const ethValue = isNativeETH(tokenIn) ? amountIn : 0n;
-
-  const builder = new BundleBuilder(BASE_CHAIN_ID);
-  builder.addExecute(
-    protocolId,
-    ADAPTER_SELECTORS.SWAP,
-    transfers,
+  const builder = await buildAerodromeSwapBundle({
+    userAddress:     recipient,
+    tokenIn,
+    tokenOut,
+    amountIn,
+    amountOutMin,
+    stable,
     deadline,
-    adapterData,
-    ethValue,
-    chain.contracts.panoramaExecutor,
-    `Swap ${getTokenSymbol(tokenIn)} → ${getTokenSymbol(tokenOut)} via Aerodrome`
-  );
-  const bundle = builder.build("");
+    executorAddress: chain.contracts.panoramaExecutor,
+    chainId:         BASE_CHAIN_ID,
+  });
 
-  // Prepend the approval if it was added
-  const allTxs: PreparedTransaction[] = [...transactions, ...bundle.steps];
+  const allTxs: PreparedTransaction[] = builder.build("").steps;
 
   return {
     transactions: allTxs,

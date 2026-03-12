@@ -228,18 +228,17 @@ contract DCAVault {
 
     /**
      * @notice Execute a DCA swap for the given order.
-     * @dev Only callable by the keeper. Approves PanoramaExecutor, calls executeSwap,
-     *      then forwards the received tokenOut directly to order.owner.
+     * @dev Only callable by the keeper. Calls PanoramaExecutor.execute() and forwards
+     *      the received tokenOut directly to order.owner.
      *      Real revert reasons from PanoramaExecutor are bubbled up verbatim.
      * @param orderId Order to execute.
      * @param amountOutMin Minimum output enforced on PanoramaExecutor (slippage protection).
-     * @param extraData ABI-encoded data forwarded to PanoramaExecutor.executeSwap (includes stable flag).
      * @param deadline Swap deadline timestamp.
      */
     function execute(
         uint256 orderId,
         uint256 amountOutMin,
-        bytes calldata extraData,
+        bytes calldata, /* extraData — reserved for future adapter params */
         uint256 deadline
     ) external nonReentrant onlyKeeper {
         Order storage order = orders[orderId];

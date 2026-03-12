@@ -134,11 +134,9 @@ Each user gets their own adapter clone on first interaction (~45k gas, one-time)
 
 | Contract | Address |
 |---|---|
-| **PanoramaExecutor** | [`0x79D671250f75631ca199d0Fa22b0071052214172`](https://basescan.org/address/0x79D671250f75631ca199d0Fa22b0071052214172) |
-| **AerodromeAdapter** | [`0xf919A01510591f38407AA4BBE5711646DB6819e3`](https://basescan.org/address/0xf919A01510591f38407AA4BBE5711646DB6819e3) |
-| **DCAVault** | [`0x748bC7b2c12F5c97F72d19d599118A7672cAc45B`](https://basescan.org/address/0x748bC7b2c12F5c97F72d19d599118A7672cAc45B) |
-
-> **Note:** The deployed `PanoramaExecutor` needs to be redeployed to include the new `execute()` function. The `AerodromeAdapter` also needs redeployment with updated flat-parameter signatures. The `DCAVault` is unaffected.
+| **PanoramaExecutor** | [`0x4B74F3D9c2d9BD8dc3913B99F4A4b15A6dBB82F0`](https://basescan.org/address/0x4B74F3D9c2d9BD8dc3913B99F4A4b15A6dBB82F0) |
+| **AerodromeAdapter** | [`0xdff5795C138bd53E5C78441D51c88668Ab28D8a6`](https://basescan.org/address/0xdff5795C138bd53E5C78441D51c88668Ab28D8a6) |
+| **DCAVault** | [`0x3748845D93617Ef2Df055D4fD406e701fF009266`](https://basescan.org/address/0x3748845D93617Ef2Df055D4fD406e701fF009266) |
 
 ---
 
@@ -247,9 +245,9 @@ cp backend/.env.example backend/.env
 ```env
 PORT=3010
 BASE_RPC_URL=https://mainnet.base.org
-EXECUTOR_ADDRESS=0x79D671250f75631ca199d0Fa22b0071052214172
-AERODROME_ADAPTER_ADDRESS=0xf919A01510591f38407AA4BBE5711646DB6819e3
-DCA_VAULT_ADDRESS=0x748bC7b2c12F5c97F72d19d599118A7672cAc45B
+EXECUTOR_ADDRESS=0x4B74F3D9c2d9BD8dc3913B99F4A4b15A6dBB82F0
+AERODROME_ADAPTER_ADDRESS=0xdff5795C138bd53E5C78441D51c88668Ab28D8a6
+DCA_VAULT_ADDRESS=0x3748845D93617Ef2Df055D4fD406e701fF009266
 ```
 
 ### 3. Run the backend

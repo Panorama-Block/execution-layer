@@ -1,9 +1,8 @@
-import { ethers } from "ethers";
 import { getChainConfig } from "../../../config/chains";
-import { encodeProtocolId, getDeadline, isNativeETH, applySlippage } from "../../../utils/encoding";
+import { getDeadline, applySlippage } from "../../../utils/encoding";
 import { TransactionBundle } from "../../../types/transaction";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
-import { BundleBuilder, ADAPTER_SELECTORS } from "../../../shared/bundle-builder";
+import { buildAerodromeSwapBundle } from "../../../shared/aerodrome-swap";
 
 export interface PrepareSwapRequest {
   userAddress: string;
@@ -43,39 +42,19 @@ export async function executePrepareSwapBundle(
   const { amountOut } = await aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, stable);
   const amountOutMin  = applySlippage(amountOut, slippageBps);
 
-  const protocolId = encodeProtocolId("aerodrome");
-  const deadline   = getDeadline(deadlineMinutes);
-  const builder    = new BundleBuilder(chain.chainId);
+  const deadline = getDeadline(deadlineMinutes);
 
-  // Step 1 - Approve tokenIn to Executor (if not native ETH, check allowance first)
-  let ethValue = 0n;
-  if (isNativeETH(req.tokenIn)) {
-    ethValue = amountIn;
-  } else {
-    const { allowance } = await aerodromeService.checkAllowance(
-      req.tokenIn, req.userAddress, executorAddress, amountIn
-    );
-    builder.addApproveIfNeeded(
-      req.tokenIn, executorAddress, allowance, amountIn,
-      "Approve token for swap"
-    );
-  }
-
-  // Step 2 - Execute swap via PanoramaExecutor.execute()
-  const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["address", "address", "uint256", "uint256", "address", "bool"],
-    [req.tokenIn, req.tokenOut, amountIn, amountOutMin, req.userAddress, stable]
-  );
-
-  const transfers = isNativeETH(req.tokenIn)
-    ? []
-    : [{ token: req.tokenIn, amount: amountIn }];
-
-  builder.addExecute(
-    protocolId, ADAPTER_SELECTORS.SWAP,
-    transfers, deadline, adapterData, ethValue,
-    executorAddress, `Swap via Aerodrome`
-  );
+  const builder = await buildAerodromeSwapBundle({
+    userAddress:     req.userAddress,
+    tokenIn:         req.tokenIn,
+    tokenOut:        req.tokenOut,
+    amountIn,
+    amountOutMin,
+    stable,
+    deadline,
+    executorAddress,
+    chainId:         chain.chainId,
+  });
 
   const priceImpact =
     amountIn > 0n

@@ -4,6 +4,17 @@ pragma solidity ^0.8.20;
 import {IERC20} from "../interfaces/IERC20.sol";
 import {SafeTransferLib} from "../libraries/SafeTransferLib.sol";
 
+interface IPanoramaExecutor {
+    struct TokenTransfer { address token; uint256 amount; }
+    function execute(
+        bytes32 protocolId,
+        bytes4  selector,
+        TokenTransfer[] calldata transfers,
+        uint256 deadline,
+        bytes calldata data
+    ) external payable returns (bytes memory);
+}
+
 /**
  * @title DCAVault
  * @notice Dollar-Cost Averaging vault for PanoramaBlock.
@@ -266,31 +277,34 @@ contract DCAVault {
         // Build protocolId for aerodrome
         bytes32 protocolId = keccak256(abi.encodePacked("aerodrome"));
 
-        // Call PanoramaExecutor.executeSwap — tokenOut lands in this vault (msg.sender = vault)
-        (bool success, bytes memory returnData) = executor.call(
-            abi.encodeWithSignature(
-                "executeSwap(bytes32,address,address,uint256,uint256,bytes,uint256)",
-                protocolId,
-                order.tokenIn,
-                order.tokenOut,
-                order.amountPerSwap,
-                amountOutMin,
-                extraData,
-                deadline
-            )
+        // Encode swap data for AerodromeAdapter
+        bytes memory adapterData = abi.encode(
+            order.tokenIn,
+            order.tokenOut,
+            order.amountPerSwap,
+            amountOutMin,
+            order.owner,
+            order.stable
         );
 
-        // Bug fix: bubble up the real revert reason instead of swallowing it
-        if (!success) {
-            if (returnData.length > 0) {
-                assembly {
-                    revert(add(32, returnData), mload(returnData))
-                }
-            }
-            revert("DCAVault: swap failed");
-        }
+        IPanoramaExecutor.TokenTransfer[] memory transfers = new IPanoramaExecutor.TokenTransfer[](1);
+        transfers[0] = IPanoramaExecutor.TokenTransfer({
+            token: order.tokenIn,
+            amount: order.amountPerSwap
+        });
 
-        // Bug fix: forward tokenOut to order owner (was previously trapped in vault)
+        // Call PanoramaExecutor.execute — tokenOut goes to order owner via adapter
+        // Typed call automatically propagates reverts from PanoramaExecutor
+        IPanoramaExecutor(executor).execute(
+            protocolId,
+            bytes4(keccak256("swap")),
+            transfers,
+            deadline,
+            adapterData
+        );
+
+        // Snapshot any tokenOut that landed in this vault and forward to owner
+        // (defensive: works whether adapter forwards directly or sends to vault)
         uint256 balAfter = IERC20(order.tokenOut).balanceOf(address(this));
         uint256 amountOut = balAfter - balBefore;
         if (amountOut > 0) {

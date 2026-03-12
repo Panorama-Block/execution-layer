@@ -1,5 +1,10 @@
 export const PANORAMA_EXECUTOR_ABI = [
-  "function execute(bytes32 protocolId, bytes4 selector, (address token, uint256 amount)[] transfers, uint256 deadline, bytes data) external payable returns (bytes result)",
+  "function executeSwap(bytes32 protocolId, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin, bytes calldata extraData, uint256 deadline) external payable returns (uint256 amountOut)",
+  "function executeAddLiquidity(bytes32 protocolId, address tokenA, address tokenB, bool stable, uint256 amountADesired, uint256 amountBDesired, uint256 amountAMin, uint256 amountBMin, bytes calldata extraData, uint256 deadline) external payable returns (uint256 liquidity)",
+  "function executeRemoveLiquidity(bytes32 protocolId, address tokenA, address tokenB, bool stable, uint256 liquidity, uint256 amountAMin, uint256 amountBMin, bytes calldata extraData, uint256 deadline) external returns (uint256 amountA, uint256 amountB)",
+  "function executeStake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData) external",
+  "function executeUnstake(bytes32 protocolId, address lpToken, uint256 amount, bytes calldata extraData) external",
+  "function executeClaimRewards(bytes32 protocolId, address lpToken, bytes calldata extraData) external returns (uint256 rewardAmount)",
   "function adapterImplementations(bytes32) external view returns (address)",
   "function getUserAdapter(bytes32 protocolId, address user) external view returns (address)",
   "function predictUserAdapter(bytes32 protocolId, address user) external view returns (address)",

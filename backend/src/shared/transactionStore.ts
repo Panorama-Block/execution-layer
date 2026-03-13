@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { getProvider } from "../providers/chain.provider";
 
 export type TxStatus = "pending" | "confirmed" | "failed";
@@ -16,10 +18,44 @@ export interface StoredTransaction {
   confirmedAt?: string;
 }
 
-// In-memory store — sufficient for hackathon MVP.
-// Production would use PostgreSQL.
-const transactions = new Map<string, StoredTransaction>();
+// ---- Persistence ----
+const DATA_DIR  = path.join(process.cwd(), "data");
+const DATA_FILE = path.join(DATA_DIR, "transactions.json");
+
+function ensureDataDir(): void {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+function loadFromDisk(): Map<string, StoredTransaction> {
+  ensureDataDir();
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, "utf-8");
+      const arr: StoredTransaction[] = JSON.parse(raw);
+      return new Map(arr.map(tx => [tx.txHash, tx]));
+    }
+  } catch {
+    // Corrupted file — start fresh
+  }
+  return new Map();
+}
+
+function saveToDisk(): void {
+  ensureDataDir();
+  const arr = Array.from(transactions.values());
+  fs.writeFileSync(DATA_FILE, JSON.stringify(arr, null, 2), "utf-8");
+}
+
+// In-memory store, hydrated from disk on startup.
+const transactions = loadFromDisk();
 const userIndex = new Map<string, string[]>(); // userAddress → txHash[]
+
+// Rebuild user index from loaded transactions
+for (const tx of transactions.values()) {
+  const list = userIndex.get(tx.userAddress) ?? [];
+  if (!list.includes(tx.txHash)) list.push(tx.txHash);
+  userIndex.set(tx.userAddress, list);
+}
 
 export function submitTransaction(
   txHash: string,
@@ -44,6 +80,8 @@ export function submitTransaction(
   const list = userIndex.get(key) ?? [];
   list.push(tx.txHash);
   userIndex.set(key, list);
+
+  saveToDisk();
 
   // Fire-and-forget: poll for confirmation
   pollConfirmation(tx.txHash).catch(() => {});
@@ -77,6 +115,7 @@ async function pollConfirmation(txHash: string, maxAttempts = 30): Promise<void>
         tx.blockNumber = receipt.blockNumber;
         tx.gasUsed = receipt.gasUsed.toString();
         tx.confirmedAt = new Date().toISOString();
+        saveToDisk();
         return;
       }
     } catch {

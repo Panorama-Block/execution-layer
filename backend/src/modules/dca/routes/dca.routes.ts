@@ -11,6 +11,7 @@ import {
 } from "../controllers/dca.controller";
 import { asyncHandler } from "../../../middleware/errorHandler";
 import { validateAddress, validateRequired, validateTxHash } from "../../../middleware/validation";
+import { requireWalletAuth } from "../../../middleware/auth";
 
 export const dcaRoutes = Router();
 
@@ -40,9 +41,10 @@ dcaRoutes.get("/executable", asyncHandler(getExecutableOrders));
 
 // Transaction management
 dcaRoutes.post("/transaction/submit",
-  validateRequired("txHash", "userAddress"),
+  validateRequired("txHash", "userAddress", "signature", "timestamp"),
   validateTxHash("txHash"),
   validateAddress("userAddress"),
+  requireWalletAuth,
   asyncHandler(submitDcaTx)
 );
 
@@ -53,5 +55,6 @@ dcaRoutes.get("/transaction/:txHash",
 
 dcaRoutes.get("/history/:userAddress",
   validateAddress("userAddress", "params"),
+  requireWalletAuth,
   asyncHandler(getDcaHistory)
 );

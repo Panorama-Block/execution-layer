@@ -6,6 +6,16 @@ vi.mock("../../../shared/services/aerodrome.service", () => ({
   },
 }));
 
+// Mock getTokenDecimals so tests are independent of RPC and use uniform 18-decimal
+// context — exchange rate assertions are about ratio, not token-unit normalization.
+vi.mock("../../../utils/tokenMath", async () => {
+  const actual = await vi.importActual<typeof import("../../../utils/tokenMath")>("../../../utils/tokenMath");
+  return {
+    ...actual,
+    getTokenDecimals: vi.fn().mockResolvedValue(18),
+  };
+});
+
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
 import { executeGetSwapQuote } from "../../../modules/swap/usecases/get-quote.usecase";
 

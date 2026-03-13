@@ -1,5 +1,6 @@
 export const PANORAMA_EXECUTOR_ABI = [
   "function execute(bytes32 protocolId, bytes4 selector, (address token, uint256 amount)[] transfers, uint256 deadline, bytes data) external payable returns (bytes result)",
+  "function executeSwapFor(address user, bytes32 protocolId, bytes4 selector, (address token, uint256 amount)[] transfers, uint256 deadline, bytes data) external payable returns (bytes result)",
   "function adapterImplementations(bytes32) external view returns (address)",
   "function getUserAdapter(bytes32 protocolId, address user) external view returns (address)",
   "function predictUserAdapter(bytes32 protocolId, address user) external view returns (address)",
@@ -20,6 +21,7 @@ export const AERODROME_FACTORY_ABI = [
 
 export const ERC20_ABI = [
   "function balanceOf(address) external view returns (uint256)",
+  "function totalSupply() external view returns (uint256)",
   "function decimals() external view returns (uint8)",
   "function symbol() external view returns (string)",
   "function allowance(address owner, address spender) external view returns (uint256)",

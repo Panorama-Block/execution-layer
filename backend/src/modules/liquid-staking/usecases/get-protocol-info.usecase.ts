@@ -43,6 +43,8 @@ interface PoolInfo {
   rewardRatePerSecond: string;
   totalStaked: string;
   estimatedAPR: string;
+  aprSource: string;
+  aprDisclaimer: string;
   totalLiquidityUsd: string | null;
 }
 
@@ -93,29 +95,24 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
       }
 
       let estimatedAPR = "0";
+      let aprSource = "unavailable";
       let totalLiquidityUsd: string | null = null;
-      if (totalStaked > 0n && rewardRate > 0n) {
-        const secondsPerYear = 365n * 24n * 3600n;
-        const yearlyRewards  = rewardRate * secondsPerYear;
-        const aprBps         = (yearlyRewards * 10000n) / totalStaked;
-        estimatedAPR = (Number(aprBps) / 100).toFixed(2);
-      }
 
-      const feeRate   = pool.stable ? 0.0001 : 0.003; // 1bp stable, 30bp volatile
+      const feeRate    = pool.stable ? 0.0001 : 0.003; // 1bp stable, 30bp volatile
       const dexMetrics = await fetchDexScreenerMetrics(poolAddress, feeRate);
+
       if (dexMetrics.tvlUsd != null && Number.isFinite(dexMetrics.tvlUsd)) {
         totalLiquidityUsd = dexMetrics.tvlUsd.toFixed(2);
       }
 
-      // If on-chain APR is 0 or absurdly high (>10000%), use DexScreener fee APR.
-      const aprNum = parseFloat(estimatedAPR);
-      if (aprNum === 0 || aprNum > 10000) {
-        const dexAPR = dexMetrics.feeAPR;
-        if (dexAPR) {
-          console.log(`[PROTOCOL-INFO]   Using DexScreener APR: ${dexAPR} (on-chain was ${estimatedAPR}%)`);
-          estimatedAPR = dexAPR.replace("%", "");
-        }
+      // Use DexScreener fee APR as the primary source — it is based on real 24h
+      // trading volume and is more reliable than on-chain gauge reward math.
+      if (dexMetrics.feeAPR) {
+        estimatedAPR = dexMetrics.feeAPR.replace("%", "");
+        aprSource    = "DexScreener fee APR (24h volume × fee rate × 365 / TVL)";
+        console.log(`[PROTOCOL-INFO]   feeAPR=${estimatedAPR}% (DexScreener)`);
       }
+
       console.log(`[PROTOCOL-INFO]   estimatedAPR=${estimatedAPR}%`);
       if (totalLiquidityUsd != null) {
         console.log(`[PROTOCOL-INFO]   totalLiquidityUsd=$${totalLiquidityUsd}`);
@@ -130,6 +127,8 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
         rewardRatePerSecond: rewardRate.toString(),
         totalStaked: totalStaked.toString(),
         estimatedAPR: `${estimatedAPR}%`,
+        aprSource,
+        aprDisclaimer: "Fee APR estimate only. Does not include AERO gauge rewards. Past performance is not indicative of future results.",
         totalLiquidityUsd,
       });
     } catch (err) {

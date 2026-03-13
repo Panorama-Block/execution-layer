@@ -13,6 +13,9 @@ export const ErrorCodes = {
   TRANSACTION_NOT_FOUND: { code: "TRANSACTION_NOT_FOUND", status: 404, message: "Transaction not found" },
   ORDER_NOT_FOUND: { code: "ORDER_NOT_FOUND", status: 404, message: "DCA order not found" },
 
+  // Client errors (400)
+  UNSUPPORTED_OPERATION: { code: "UNSUPPORTED_OPERATION", status: 400, message: "Operation not supported for this token or pool" },
+
   // Auth errors (401)
   INVALID_SIGNATURE: { code: "INVALID_SIGNATURE", status: 401, message: "Invalid or missing wallet signature" },
   AUTH_EXPIRED: { code: "AUTH_EXPIRED", status: 401, message: "Authentication timestamp expired (5 minute window)" },

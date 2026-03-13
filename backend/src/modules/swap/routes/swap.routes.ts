@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prepareSwap, getQuote, getSwapPairs, submitSwapTx, getSwapTxStatus, getSwapHistory } from "../controllers/swap.controller";
 import { asyncHandler } from "../../../middleware/errorHandler";
 import { validateAddress, validateAmount, validateRequired, validateSlippage, validateTxHash } from "../../../middleware/validation";
+import { requireWalletAuth } from "../../../middleware/auth";
 
 export const swapRoutes = Router();
 
@@ -26,9 +27,10 @@ swapRoutes.get("/pairs", asyncHandler(getSwapPairs));
 
 // Transaction management
 swapRoutes.post("/transaction/submit",
-  validateRequired("txHash", "userAddress"),
+  validateRequired("txHash", "userAddress", "signature", "timestamp"),
   validateTxHash("txHash"),
   validateAddress("userAddress"),
+  requireWalletAuth,
   asyncHandler(submitSwapTx)
 );
 
@@ -39,5 +41,6 @@ swapRoutes.get("/transaction/:txHash",
 
 swapRoutes.get("/history/:userAddress",
   validateAddress("userAddress", "params"),
+  requireWalletAuth,
   asyncHandler(getSwapHistory)
 );

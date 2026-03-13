@@ -16,15 +16,30 @@ import { rateLimiter } from "./middleware/rateLimiter";
 const app = express();
 const PORT = process.env.PORT || 3010;
 
+// CORS — restrict to allowlisted origins in production
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
+  : ["http://localhost:3000", "http://localhost:3010"];
+
 app.use(helmet());
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, server-to-server)
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  credentials: true,
+}));
+app.use(express.json({ limit: "1mb" }));
 app.use(rateLimiter);
 
-app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc, {
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: "PanoramaBlock API Docs",
-}));
+// Swagger only in non-production environments
+if (process.env.NODE_ENV !== "production") {
+  app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: "PanoramaBlock API Docs",
+  }));
+}
 
 app.use("/provider/swap", swapProviderRoutes); // External Liquid Swap Service adapter
 app.use("/staking", stakingRoutes);

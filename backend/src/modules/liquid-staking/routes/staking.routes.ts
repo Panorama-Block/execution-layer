@@ -13,6 +13,7 @@ import {
 } from "../controllers/staking.controller";
 import { asyncHandler } from "../../../middleware/errorHandler";
 import { validateAddress, validateAmount, validateRequired, validateSlippage, validateTxHash } from "../../../middleware/validation";
+import { requireWalletAuth } from "../../../middleware/auth";
 
 export const stakingRoutes = Router();
 
@@ -58,9 +59,10 @@ stakingRoutes.post("/prepare-claim",
 
 // Transaction management
 stakingRoutes.post("/transaction/submit",
-  validateRequired("txHash", "userAddress"),
+  validateRequired("txHash", "userAddress", "signature", "timestamp"),
   validateTxHash("txHash"),
   validateAddress("userAddress"),
+  requireWalletAuth,
   asyncHandler(submitTx)
 );
 
@@ -71,5 +73,6 @@ stakingRoutes.get("/transaction/:txHash",
 
 stakingRoutes.get("/history/:userAddress",
   validateAddress("userAddress", "params"),
+  requireWalletAuth,
   asyncHandler(getTxHistory)
 );

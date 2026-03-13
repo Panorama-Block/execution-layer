@@ -13,6 +13,10 @@ export const ErrorCodes = {
   TRANSACTION_NOT_FOUND: { code: "TRANSACTION_NOT_FOUND", status: 404, message: "Transaction not found" },
   ORDER_NOT_FOUND: { code: "ORDER_NOT_FOUND", status: 404, message: "DCA order not found" },
 
+  // Auth errors (401)
+  INVALID_SIGNATURE: { code: "INVALID_SIGNATURE", status: 401, message: "Invalid or missing wallet signature" },
+  AUTH_EXPIRED: { code: "AUTH_EXPIRED", status: 401, message: "Authentication timestamp expired (5 minute window)" },
+
   // Rate limiting (429)
   RATE_LIMIT_EXCEEDED: { code: "RATE_LIMIT_EXCEEDED", status: 429, message: "Too many requests, please try again later" },
 

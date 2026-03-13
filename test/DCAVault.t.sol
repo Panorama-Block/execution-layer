@@ -3,15 +3,16 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import {DCAVault} from "../contracts/core/DCAVault.sol";
+import {IPanoramaExecutor} from "../contracts/interfaces/IPanoramaExecutor.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 // ---------------------------------------------------------------------------
-// MockExecutor — simulates PanoramaExecutor.executeSwap behaviour:
-//   - pulls tokenIn from vault (vault approved it)
-//   - sends tokenOut to msg.sender (the vault), mimicking the real executor
-//     where recipient = msg.sender
+// MockExecutor — simulates PanoramaExecutor.execute() for swap operations:
+//   - pulls tokenIn from vault (vault approved it) using transfers[0]
+//   - decodes tokenOut from adapterData and sends it to vault
+//   - vault then forwards tokenOut to order.owner
 // ---------------------------------------------------------------------------
-contract MockExecutor {
+contract MockExecutor is IPanoramaExecutor {
     // rate: 1 tokenIn = 2 tokenOut (integer, no decimals)
     uint256 public constant RATE = 2;
     bool public shouldRevert;
@@ -22,23 +23,30 @@ contract MockExecutor {
         revertData = _data;
     }
 
-    fallback(bytes calldata) external returns (bytes memory) {
+    function execute(
+        bytes32, /* protocolId */
+        bytes4, /* action */
+        Transfer[] calldata transfers,
+        uint256, /* deadline */
+        bytes calldata data
+    ) external payable override returns (bytes memory) {
         if (shouldRevert) {
-            bytes memory data = revertData;
+            bytes memory err = revertData;
             assembly {
-                revert(add(32, data), mload(data))
+                revert(add(32, err), mload(err))
             }
         }
 
-        // Decode executeSwap args: (bytes32, address tokenIn, address tokenOut, uint256 amountIn, ...)
-        // We only need tokenIn, tokenOut, amountIn
-        (, address tokenIn, address tokenOut, uint256 amountIn,,,) =
-            abi.decode(msg.data[4:], (bytes32, address, address, uint256, uint256, bytes, uint256));
+        // adapterData = abi.encode(tokenIn, tokenOut, amountIn, amountOutMin, owner, stable)
+        (, address tokenOut, uint256 amountIn,,,) =
+            abi.decode(data, (address, address, uint256, uint256, address, bool));
+
+        address tokenIn = transfers[0].token;
 
         // Pull tokenIn from vault (vault already approved us)
         MockERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
 
-        // Send tokenOut to vault (msg.sender) — this is what the real executor does
+        // Send tokenOut to vault — vault forwards it to order.owner
         uint256 amountOut = amountIn * RATE;
         MockERC20(tokenOut).transfer(msg.sender, amountOut);
 

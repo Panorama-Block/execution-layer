@@ -28,6 +28,19 @@ contract AerodromeForkTest is Test {
     address constant WETH = 0x4200000000000000000000000000000000000006;
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
+    // ========== SELECTORS ==========
+
+    bytes4 public constant SWAP_SELECTOR =
+        bytes4(keccak256("swap(address,address,uint256,uint256,address,bool)"));
+    bytes4 public constant ADD_LIQUIDITY_SELECTOR =
+        bytes4(keccak256("addLiquidity(address,address,bool,uint256,uint256,uint256,uint256,address)"));
+    bytes4 public constant REMOVE_LIQUIDITY_SELECTOR =
+        bytes4(keccak256("removeLiquidity(address,address,bool,uint256,uint256,uint256,address,address)"));
+    bytes4 public constant STAKE_SELECTOR =
+        bytes4(keccak256("stake(address,uint256,address)"));
+    bytes4 public constant UNSTAKE_SELECTOR =
+        bytes4(keccak256("unstake(address,uint256,address,address)"));
+
     // ========== TEST STATE ==========
 
     address public user = address(0xBEEF);
@@ -39,7 +52,6 @@ contract AerodromeForkTest is Test {
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
 
-        // Deploy fresh contracts
         executor = new PanoramaExecutor();
         adapter = new AerodromeAdapter(ROUTER, VOTER, address(executor));
         executor.registerAdapter(AERODROME_ID, address(adapter));
@@ -47,28 +59,40 @@ contract AerodromeForkTest is Test {
         deadline = block.timestamp + 3600;
     }
 
+    // ========== HELPERS ==========
+
+    function _transfers(address token, uint256 amount)
+        internal
+        pure
+        returns (PanoramaExecutor.Transfer[] memory t)
+    {
+        t = new PanoramaExecutor.Transfer[](1);
+        t[0] = PanoramaExecutor.Transfer({token: token, amount: amount});
+    }
+
+    function _transfers2(address tokenA, uint256 amountA, address tokenB, uint256 amountB)
+        internal
+        pure
+        returns (PanoramaExecutor.Transfer[] memory t)
+    {
+        t = new PanoramaExecutor.Transfer[](2);
+        t[0] = PanoramaExecutor.Transfer({token: tokenA, amount: amountA});
+        t[1] = PanoramaExecutor.Transfer({token: tokenB, amount: amountB});
+    }
+
     // ========== TEST 1: SWAP WETH -> USDC ==========
 
     function test_Fork_SwapWETHtoUSDC() public {
         uint256 amountIn = 0.01 ether;
 
-        // Deal WETH to user
         deal(WETH, user, 1 ether);
-
         uint256 wethBefore = IERC20(WETH).balanceOf(user);
 
         vm.startPrank(user);
         IERC20(WETH).approve(address(executor), amountIn);
 
-        executor.executeSwap(
-            AERODROME_ID,
-            WETH,
-            USDC,
-            amountIn,
-            0,
-            abi.encode(false), // volatile pool
-            deadline
-        );
+        bytes memory swapData = abi.encode(WETH, USDC, amountIn, uint256(0), user, false);
+        executor.execute(AERODROME_ID, SWAP_SELECTOR, _transfers(WETH, amountIn), deadline, swapData);
         vm.stopPrank();
 
         uint256 wethAfter = IERC20(WETH).balanceOf(user);
@@ -84,21 +108,13 @@ contract AerodromeForkTest is Test {
     function test_Fork_SwapUSDCtoWETH() public {
         uint256 amountIn = 100e6; // 100 USDC
 
-        // Deal USDC to user
         deal(USDC, user, 10_000e6);
 
         vm.startPrank(user);
         IERC20(USDC).approve(address(executor), amountIn);
 
-        executor.executeSwap(
-            AERODROME_ID,
-            USDC,
-            WETH,
-            amountIn,
-            0,
-            abi.encode(false), // volatile pool
-            deadline
-        );
+        bytes memory swapData = abi.encode(USDC, WETH, amountIn, uint256(0), user, false);
+        executor.execute(AERODROME_ID, SWAP_SELECTOR, _transfers(USDC, amountIn), deadline, swapData);
         vm.stopPrank();
 
         uint256 wethBalance = IERC20(WETH).balanceOf(user);
@@ -109,9 +125,8 @@ contract AerodromeForkTest is Test {
 
     function test_Fork_AddLiquidity() public {
         uint256 amountWETH = 0.01 ether;
-        uint256 amountUSDC = 10e6; // 10 USDC
+        uint256 amountUSDC = 10e6;
 
-        // Deal tokens to user
         deal(WETH, user, 0.1 ether);
         deal(USDC, user, 100e6);
 
@@ -119,21 +134,16 @@ contract AerodromeForkTest is Test {
         IERC20(WETH).approve(address(executor), amountWETH);
         IERC20(USDC).approve(address(executor), amountUSDC);
 
-        executor.executeAddLiquidity(
+        bytes memory addLiqData = abi.encode(WETH, USDC, false, amountWETH, amountUSDC, uint256(0), uint256(0), user);
+        executor.execute(
             AERODROME_ID,
-            WETH,
-            USDC,
-            false, // volatile pool
-            amountWETH,
-            amountUSDC,
-            0,
-            0,
-            "0x",
-            deadline
+            ADD_LIQUIDITY_SELECTOR,
+            _transfers2(WETH, amountWETH, USDC, amountUSDC),
+            deadline,
+            addLiqData
         );
         vm.stopPrank();
 
-        // Get pool address and check LP balance
         address pool = IAerodromeFactory(FACTORY).getPool(WETH, USDC, false);
         assertTrue(pool != address(0), "Pool should exist");
 
@@ -144,7 +154,6 @@ contract AerodromeForkTest is Test {
     // ========== TEST 4: STAKE LP IN GAUGE ==========
 
     function test_Fork_StakeLPInGauge() public {
-        // First add liquidity to get LP tokens
         uint256 amountWETH = 0.01 ether;
         uint256 amountUSDC = 10e6;
 
@@ -155,11 +164,15 @@ contract AerodromeForkTest is Test {
         IERC20(WETH).approve(address(executor), amountWETH);
         IERC20(USDC).approve(address(executor), amountUSDC);
 
-        executor.executeAddLiquidity(
-            AERODROME_ID, WETH, USDC, false, amountWETH, amountUSDC, 0, 0, "0x", deadline
+        bytes memory addLiqData = abi.encode(WETH, USDC, false, amountWETH, amountUSDC, uint256(0), uint256(0), user);
+        executor.execute(
+            AERODROME_ID,
+            ADD_LIQUIDITY_SELECTOR,
+            _transfers2(WETH, amountWETH, USDC, amountUSDC),
+            deadline,
+            addLiqData
         );
 
-        // Get pool and gauge
         address pool = IAerodromeFactory(FACTORY).getPool(WETH, USDC, false);
         address gauge = IAerodromeVoter(VOTER).gauges(pool);
         assertTrue(gauge != address(0), "Gauge should exist for WETH/USDC pool");
@@ -167,17 +180,17 @@ contract AerodromeForkTest is Test {
         uint256 lpBalance = IERC20(pool).balanceOf(user);
         assertGt(lpBalance, 0, "User should have LP tokens before staking");
 
-        // Approve LP tokens to executor and stake
         IERC20(pool).approve(address(executor), lpBalance);
 
-        executor.executeStake(AERODROME_ID, pool, lpBalance, abi.encode(gauge));
+        bytes memory stakeData = abi.encode(pool, lpBalance, gauge);
+        executor.execute(AERODROME_ID, STAKE_SELECTOR, _transfers(pool, lpBalance), deadline, stakeData);
         vm.stopPrank();
 
-        // The adapter calls gauge.deposit(amount) so balance is credited to the adapter.
-        uint256 stakedBalance = IAerodromeGauge(gauge).balanceOf(address(adapter));
-        assertGt(stakedBalance, 0, "Adapter should have staked LP in gauge");
+        // Per-user adapter clone holds the staked position
+        address userAdapter = executor.userAdapters(AERODROME_ID, user);
+        uint256 stakedBalance = IAerodromeGauge(gauge).balanceOf(userAdapter);
+        assertGt(stakedBalance, 0, "User adapter should have staked LP in gauge");
 
-        // User LP balance should be zero after staking
         uint256 userLpAfter = IERC20(pool).balanceOf(user);
         assertEq(userLpAfter, 0, "User should have no LP tokens after staking");
     }
@@ -188,18 +201,22 @@ contract AerodromeForkTest is Test {
         uint256 amountWETH = 0.01 ether;
         uint256 amountUSDC = 10e6;
 
-        // --- Step 1: Deal tokens ---
         deal(WETH, user, 1 ether);
         deal(USDC, user, 10_000e6);
 
         vm.startPrank(user);
 
-        // --- Step 2: Add liquidity ---
+        // --- Step 1: Add liquidity ---
         IERC20(WETH).approve(address(executor), amountWETH);
         IERC20(USDC).approve(address(executor), amountUSDC);
 
-        executor.executeAddLiquidity(
-            AERODROME_ID, WETH, USDC, false, amountWETH, amountUSDC, 0, 0, "0x", deadline
+        bytes memory addLiqData = abi.encode(WETH, USDC, false, amountWETH, amountUSDC, uint256(0), uint256(0), user);
+        executor.execute(
+            AERODROME_ID,
+            ADD_LIQUIDITY_SELECTOR,
+            _transfers2(WETH, amountWETH, USDC, amountUSDC),
+            deadline,
+            addLiqData
         );
 
         address pool = IAerodromeFactory(FACTORY).getPool(WETH, USDC, false);
@@ -208,40 +225,38 @@ contract AerodromeForkTest is Test {
         uint256 lpBalance = IERC20(pool).balanceOf(user);
         assertGt(lpBalance, 0, "Full flow: user should have LP tokens after addLiquidity");
 
-        // --- Step 3: Stake LP in gauge ---
+        // --- Step 2: Stake LP in gauge ---
         IERC20(pool).approve(address(executor), lpBalance);
-        executor.executeStake(AERODROME_ID, pool, lpBalance, abi.encode(gauge));
+        bytes memory stakeData = abi.encode(pool, lpBalance, gauge);
+        executor.execute(AERODROME_ID, STAKE_SELECTOR, _transfers(pool, lpBalance), deadline, stakeData);
 
-        uint256 stakedBalance = IAerodromeGauge(gauge).balanceOf(address(adapter));
+        address userAdapter = executor.userAdapters(AERODROME_ID, user);
+        uint256 stakedBalance = IAerodromeGauge(gauge).balanceOf(userAdapter);
         assertGt(stakedBalance, 0, "Full flow: adapter should have staked balance in gauge");
 
-        // --- Step 4: Unstake LP from gauge ---
-        // The adapter withdraws from gauge, forwards LP to executor, executor forwards to user.
-        executor.executeUnstake(AERODROME_ID, pool, stakedBalance, abi.encode(gauge));
+        // --- Step 3: Unstake LP from gauge ---
+        bytes memory unstakeData = abi.encode(pool, stakedBalance, gauge, user);
+        PanoramaExecutor.Transfer[] memory noTransfers = new PanoramaExecutor.Transfer[](0);
+        executor.execute(AERODROME_ID, UNSTAKE_SELECTOR, noTransfers, deadline, unstakeData);
 
-        uint256 stakedAfterUnstake = IAerodromeGauge(gauge).balanceOf(address(adapter));
+        uint256 stakedAfterUnstake = IAerodromeGauge(gauge).balanceOf(userAdapter);
         assertEq(stakedAfterUnstake, 0, "Full flow: no staked balance after unstake");
 
-        // LP tokens should be returned to the user (executeUnstake forwards them)
         uint256 userLpForRemoval = IERC20(pool).balanceOf(user);
         assertGt(userLpForRemoval, 0, "Full flow: user should have LP after unstake");
 
+        // --- Step 4: Remove liquidity ---
         uint256 wethBefore = IERC20(WETH).balanceOf(user);
         uint256 usdcBefore = IERC20(USDC).balanceOf(user);
 
-        vm.startPrank(user);
         IERC20(pool).approve(address(executor), userLpForRemoval);
-
-        executor.executeRemoveLiquidity(
+        bytes memory removeLiqData = abi.encode(WETH, USDC, false, userLpForRemoval, uint256(0), uint256(0), user, pool);
+        executor.execute(
             AERODROME_ID,
-            WETH,
-            USDC,
-            false, // volatile
-            userLpForRemoval,
-            0,
-            0,
-            abi.encode(pool), // extraData = pool address
-            deadline
+            REMOVE_LIQUIDITY_SELECTOR,
+            _transfers(pool, userLpForRemoval),
+            deadline,
+            removeLiqData
         );
         vm.stopPrank();
 

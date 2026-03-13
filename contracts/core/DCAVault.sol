@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {IERC20} from "../interfaces/IERC20.sol";
 import {SafeTransferLib} from "../libraries/SafeTransferLib.sol";
+import {IPanoramaExecutor} from "../interfaces/IPanoramaExecutor.sol";
 
 /**
  * @title DCAVault
@@ -227,18 +228,17 @@ contract DCAVault {
 
     /**
      * @notice Execute a DCA swap for the given order.
-     * @dev Only callable by the keeper. Approves PanoramaExecutor, calls executeSwap,
-     *      then forwards the received tokenOut directly to order.owner.
+     * @dev Only callable by the keeper. Calls PanoramaExecutor.execute() and forwards
+     *      the received tokenOut directly to order.owner.
      *      Real revert reasons from PanoramaExecutor are bubbled up verbatim.
      * @param orderId Order to execute.
      * @param amountOutMin Minimum output enforced on PanoramaExecutor (slippage protection).
-     * @param extraData ABI-encoded data forwarded to PanoramaExecutor.executeSwap (includes stable flag).
      * @param deadline Swap deadline timestamp.
      */
     function execute(
         uint256 orderId,
         uint256 amountOutMin,
-        bytes calldata extraData,
+        bytes calldata, /* extraData — reserved for future adapter params */
         uint256 deadline
     ) external nonReentrant onlyKeeper {
         Order storage order = orders[orderId];
@@ -276,8 +276,8 @@ contract DCAVault {
             order.stable
         );
 
-        IPanoramaExecutor.TokenTransfer[] memory transfers = new IPanoramaExecutor.TokenTransfer[](1);
-        transfers[0] = IPanoramaExecutor.TokenTransfer({
+        IPanoramaExecutor.Transfer[] memory transfers = new IPanoramaExecutor.Transfer[](1);
+        transfers[0] = IPanoramaExecutor.Transfer({
             token: order.tokenIn,
             amount: order.amountPerSwap
         });
@@ -286,12 +286,11 @@ contract DCAVault {
         // Typed call automatically propagates reverts from PanoramaExecutor
         IPanoramaExecutor(executor).execute(
             protocolId,
-            bytes4(keccak256("swap")),
+            bytes4(keccak256("swap(address,address,uint256,uint256,address,bool)")),
             transfers,
             deadline,
             adapterData
         );
-        require(success, "DCAVault: swap failed");
 
         // Snapshot any tokenOut that landed in this vault and forward to owner
         // (defensive: works whether adapter forwards directly or sends to vault)

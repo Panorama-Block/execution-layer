@@ -12,17 +12,15 @@ import {DCAVault} from "../contracts/core/DCAVault.sol";
  *      forge script script/DeployDCAVault.s.sol --rpc-url $BASE_RPC_URL --broadcast --verify
  */
 contract DeployDCAVault is Script {
-    // PanoramaExecutor already deployed on Base mainnet
-    address constant EXECUTOR = 0x79D671250f75631ca199d0Fa22b0071052214172;
-
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
+        address deployer  = vm.addr(deployerPrivateKey);
+        address executor  = vm.envAddress("EXECUTOR_ADDRESS");
 
         vm.startBroadcast(deployerPrivateKey);
 
         // Keeper = deployer wallet (change to dedicated keeper address if needed)
-        DCAVault vault = new DCAVault(deployer, EXECUTOR);
+        DCAVault vault = new DCAVault(deployer, executor);
 
         vm.stopBroadcast();
 
@@ -30,7 +28,7 @@ contract DeployDCAVault is Script {
         console.log("Chain:    Base Mainnet (8453)");
         console.log("Vault:   ", address(vault));
         console.log("Keeper:  ", deployer);
-        console.log("Executor:", EXECUTOR);
+        console.log("Executor:", executor);
         console.log("\nNext step: add to backend/.env:");
         console.log("DCA_VAULT_ADDRESS=", address(vault));
     }

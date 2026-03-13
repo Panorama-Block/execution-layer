@@ -3,6 +3,7 @@ import { getDeadline, applySlippage } from "../../../utils/encoding";
 import { TransactionBundle } from "../../../types/transaction";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
 import { buildAerodromeSwapBundle } from "../../../shared/aerodrome-swap";
+import { getTokenDecimals, formatExchangeRate } from "../../../utils/tokenMath";
 
 export interface PrepareSwapRequest {
   userAddress: string;
@@ -24,7 +25,9 @@ export interface PrepareSwapResponse {
     amountOutMin: string;
     stable: boolean;
     slippageBps: number;
+    exchangeRate: string;
     priceImpact: string;
+    priceImpactNote: string;
   };
 }
 
@@ -56,6 +59,14 @@ export async function executePrepareSwapBundle(
     chainId:         chain.chainId,
   });
 
+  const [decimalsIn, decimalsOut] = await Promise.all([
+    getTokenDecimals(req.tokenIn),
+    getTokenDecimals(req.tokenOut),
+  ]);
+
+  const exchangeRate = formatExchangeRate(amountOut, amountIn, decimalsIn, decimalsOut);
+
+  // Price impact is a rough route-derived estimate — not a true market impact.
   const priceImpact =
     amountIn > 0n
       ? (100 - (Number(amountOut) / Number(amountIn)) * 100).toFixed(4)
@@ -71,7 +82,9 @@ export async function executePrepareSwapBundle(
       amountOutMin: amountOutMin.toString(),
       stable,
       slippageBps,
+      exchangeRate,
       priceImpact,
+      priceImpactNote: "Estimated from route quote. Actual impact may vary.",
     },
   };
 }

@@ -17,9 +17,9 @@ export async function prepareEnterStrategy(req: Request, res: Response) {
 }
 
 export async function prepareExitStrategy(req: Request, res: Response) {
-  const { userAddress, poolId, amount, deadlineMinutes } = req.body;
+  const { userAddress, poolId, amount, slippageBps, deadlineMinutes } = req.body;
   const result = await executeExitStrategy({
-    userAddress, poolId, amount, deadlineMinutes,
+    userAddress, poolId, amount, slippageBps, deadlineMinutes,
   });
   return res.json(result);
 }

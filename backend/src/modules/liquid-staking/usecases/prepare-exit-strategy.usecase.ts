@@ -1,15 +1,18 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../../../config/chains";
 import { getStakingPoolById } from "../config/staking-pools";
-import { encodeProtocolId, getDeadline } from "../../../utils/encoding";
+import { encodeProtocolId, getDeadline, applySlippage } from "../../../utils/encoding";
 import { TransactionBundle } from "../../../types/transaction";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
 import { BundleBuilder, ADAPTER_SELECTORS } from "../../../shared/bundle-builder";
+import { getContract } from "../../../providers/chain.provider";
+import { ERC20_ABI, POOL_ABI } from "../../../utils/abi";
 
 export interface PrepareExitStrategyRequest {
   userAddress: string;
   poolId: string;
   amount?: string; // LP amount in wei. If omitted, exits full position.
+  slippageBps?: number;
   deadlineMinutes?: number;
 }
 
@@ -40,6 +43,7 @@ export async function executeExitStrategy(
 
   const chain = getChainConfig("base");
   const executorAddress = chain.contracts.panoramaExecutor;
+  const slippageBps     = req.slippageBps ?? 100;
   const deadlineMinutes = req.deadlineMinutes ?? 20;
 
   // Resolve pool/gauge from canonical config first, fallback to on-chain.
@@ -97,11 +101,35 @@ export async function executeExitStrategy(
     "Approve LP token for removing liquidity"
   );
 
+  // Compute slippage-adjusted min outputs from current pool reserves + LP totalSupply.
+  let amountAMin = 0n;
+  let amountBMin = 0n;
+  try {
+    const pool       = getContract(poolAddress, POOL_ABI, "base");
+    const lpContract = getContract(poolAddress, ERC20_ABI, "base");
+    const [[reserve0, reserve1], totalSupply] = await Promise.all([
+      pool.getReserves() as Promise<[bigint, bigint, bigint]>,
+      lpContract.totalSupply() as Promise<bigint>,
+    ]);
+    if (totalSupply > 0n) {
+      const token0 = (await pool.token0() as string).toLowerCase();
+      const isTokenAFirst = poolConfig.tokenA.address.toLowerCase() === token0;
+      const reserveA = isTokenAFirst ? reserve0 : reserve1;
+      const reserveB = isTokenAFirst ? reserve1 : reserve0;
+      const proportionalA = (reserveA * lpAmount) / totalSupply;
+      const proportionalB = (reserveB * lpAmount) / totalSupply;
+      amountAMin = applySlippage(proportionalA, slippageBps);
+      amountBMin = applySlippage(proportionalB, slippageBps);
+    }
+  } catch (e) {
+    console.warn("[EXIT] Could not compute min amounts from reserves, using 0:", e instanceof Error ? e.message : e);
+  }
+
   // Step 3 - Remove Liquidity via PanoramaExecutor
   const removeData = ethers.AbiCoder.defaultAbiCoder().encode(
     ["address", "address", "bool", "uint256", "uint256", "uint256", "address", "address"],
     [poolConfig.tokenA.address, poolConfig.tokenB.address, poolConfig.stable,
-     lpAmount, 0n, 0n, req.userAddress, poolAddress]
+     lpAmount, amountAMin, amountBMin, req.userAddress, poolAddress]
   );
 
   builder.addExecute(

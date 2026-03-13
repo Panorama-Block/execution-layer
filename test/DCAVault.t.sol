@@ -30,6 +30,21 @@ contract MockExecutor is IPanoramaExecutor {
         uint256, /* deadline */
         bytes calldata data
     ) external payable override returns (bytes memory) {
+        return _doSwap(transfers, data);
+    }
+
+    function executeSwapFor(
+        address, /* user */
+        bytes32, /* protocolId */
+        bytes4,  /* action */
+        Transfer[] calldata transfers,
+        uint256, /* deadline */
+        bytes calldata data
+    ) external payable override returns (bytes memory) {
+        return _doSwap(transfers, data);
+    }
+
+    function _doSwap(Transfer[] calldata transfers, bytes calldata data) internal returns (bytes memory) {
         if (shouldRevert) {
             bytes memory err = revertData;
             assembly {
@@ -393,7 +408,7 @@ contract DCAVaultTest is Test {
         assertTrue(vault.isExecutable(orderId));
     }
 
-    // ========== TWO-STEP KEEPER ==========
+    // ========== TWO-STEP KEEPER (with time-lock) ==========
 
     function test_ProposeAndAcceptKeeper() public {
         address newKeeper = address(0x1234);
@@ -401,11 +416,23 @@ contract DCAVaultTest is Test {
         vault.proposeKeeper(newKeeper);
         assertEq(vault.pendingKeeper(), newKeeper);
 
+        // Must wait ADMIN_DELAY before accepting
+        vm.warp(block.timestamp + vault.ADMIN_DELAY() + 1);
+
         vm.prank(newKeeper);
         vault.acceptKeeper();
 
         assertEq(vault.keeper(), newKeeper);
         assertEq(vault.pendingKeeper(), address(0));
+        assertEq(vault.keeperChangeUnlockAt(), 0);
+    }
+
+    function test_AcceptKeeper_BeforeDelay_Reverts() public {
+        vault.proposeKeeper(address(0x1234));
+
+        vm.prank(address(0x1234));
+        vm.expectRevert(DCAVault.DelayNotElapsed.selector);
+        vault.acceptKeeper();
     }
 
     function test_ProposeKeeper_OnlyOwner_Reverts() public {
@@ -416,6 +443,7 @@ contract DCAVaultTest is Test {
 
     function test_AcceptKeeper_WrongCaller_Reverts() public {
         vault.proposeKeeper(address(0x1234));
+        vm.warp(block.timestamp + vault.ADMIN_DELAY() + 1);
         vm.prank(user);
         vm.expectRevert(DCAVault.Unauthorized.selector);
         vault.acceptKeeper();
@@ -451,7 +479,7 @@ contract DCAVaultTest is Test {
         vault.proposeExecutor(address(0x5678));
     }
 
-    // ========== TWO-STEP OWNERSHIP ==========
+    // ========== TWO-STEP OWNERSHIP (with time-lock) ==========
 
     function test_ProposeAndAcceptOwnership() public {
         address newOwner = address(0xABCD);
@@ -459,11 +487,24 @@ contract DCAVaultTest is Test {
         vault.proposeOwner(newOwner);
         assertEq(vault.pendingOwner(), newOwner);
 
+        // Must wait ADMIN_DELAY before accepting
+        vm.warp(block.timestamp + vault.ADMIN_DELAY() + 1);
+
         vm.prank(newOwner);
         vault.acceptOwnership();
 
         assertEq(vault.owner(), newOwner);
         assertEq(vault.pendingOwner(), address(0));
+        assertEq(vault.ownershipTransferUnlockAt(), 0);
+    }
+
+    function test_AcceptOwnership_BeforeDelay_Reverts() public {
+        address newOwner = address(0xABCD);
+        vault.proposeOwner(newOwner);
+
+        vm.prank(newOwner);
+        vm.expectRevert(DCAVault.DelayNotElapsed.selector);
+        vault.acceptOwnership();
     }
 
     function test_ProposeOwner_OnlyOwner_Reverts() public {
@@ -474,6 +515,7 @@ contract DCAVaultTest is Test {
 
     function test_AcceptOwnership_WrongCaller_Reverts() public {
         vault.proposeOwner(address(0xABCD));
+        vm.warp(block.timestamp + vault.ADMIN_DELAY() + 1);
         vm.prank(user);
         vm.expectRevert(DCAVault.Unauthorized.selector);
         vault.acceptOwnership();

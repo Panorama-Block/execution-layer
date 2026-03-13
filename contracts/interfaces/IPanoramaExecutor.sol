@@ -14,4 +14,13 @@ interface IPanoramaExecutor {
         uint256 deadline,
         bytes calldata data
     ) external payable returns (bytes memory result);
+
+    function executeSwapFor(
+        address user,
+        bytes32 protocolId,
+        bytes4 action,
+        Transfer[] calldata transfers,
+        uint256 deadline,
+        bytes calldata data
+    ) external payable returns (bytes memory result);
 }

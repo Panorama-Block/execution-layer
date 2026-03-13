@@ -67,19 +67,129 @@ contract PanoramaExecutorTest is Test {
         executor.registerAdapter(keccak256("test"), address(0));
     }
 
-    function test_RemoveAdapter() public {
-        executor.removeAdapter(AERODROME_ID);
+    // ========== DELAYED ADAPTER REMOVAL ==========
+
+    function test_ScheduleAndExecuteAdapterRemoval() public {
+        executor.scheduleAdapterRemoval(AERODROME_ID);
+
+        uint256 unlockAt = executor.pendingAdapterRemovals(AERODROME_ID);
+        assertEq(unlockAt, block.timestamp + executor.ADAPTER_REMOVAL_DELAY());
+
+        // Cannot remove before delay
+        vm.expectRevert(PanoramaExecutor.RemovalDelayNotElapsed.selector);
+        executor.executeAdapterRemoval(AERODROME_ID);
+
+        // Warp past delay and finalise
+        vm.warp(block.timestamp + executor.ADAPTER_REMOVAL_DELAY() + 1);
+        executor.executeAdapterRemoval(AERODROME_ID);
+
         assertEq(executor.adapterImplementations(AERODROME_ID), address(0));
+        assertEq(executor.pendingAdapterRemovals(AERODROME_ID), 0);
     }
 
-    function test_TransferOwnership() public {
-        executor.transferOwnership(user);
+    function test_CancelAdapterRemoval() public {
+        executor.scheduleAdapterRemoval(AERODROME_ID);
+        executor.cancelAdapterRemoval(AERODROME_ID);
+
+        assertEq(executor.pendingAdapterRemovals(AERODROME_ID), 0);
+        // Implementation still registered
+        assertEq(executor.adapterImplementations(AERODROME_ID), address(adapter));
+    }
+
+    function test_ScheduleRemoval_AdapterNotRegistered_Reverts() public {
+        vm.expectRevert(PanoramaExecutor.AdapterNotRegistered.selector);
+        executor.scheduleAdapterRemoval(keccak256("unknown"));
+    }
+
+    function test_ExecuteRemoval_NotScheduled_Reverts() public {
+        vm.expectRevert(PanoramaExecutor.RemovalNotScheduled.selector);
+        executor.executeAdapterRemoval(AERODROME_ID);
+    }
+
+    function test_CancelRemoval_NotScheduled_Reverts() public {
+        vm.expectRevert(PanoramaExecutor.RemovalNotScheduled.selector);
+        executor.cancelAdapterRemoval(AERODROME_ID);
+    }
+
+    // ========== TWO-STEP OWNERSHIP ==========
+
+    function test_ProposeAndAcceptOwnership() public {
+        executor.proposeOwner(user);
+        assertEq(executor.pendingOwner(), user);
+
+        vm.prank(user);
+        executor.acceptOwnership();
+
         assertEq(executor.owner(), user);
+        assertEq(executor.pendingOwner(), address(0));
     }
 
-    function test_TransferOwnership_ZeroAddress() public {
+    function test_ProposeOwner_ZeroAddress() public {
         vm.expectRevert(PanoramaExecutor.ZeroAddress.selector);
-        executor.transferOwnership(address(0));
+        executor.proposeOwner(address(0));
+    }
+
+    function test_AcceptOwnership_WrongCaller_Reverts() public {
+        executor.proposeOwner(user);
+        vm.prank(address(0xDEAD));
+        vm.expectRevert(PanoramaExecutor.Unauthorized.selector);
+        executor.acceptOwnership();
+    }
+
+    // ========== AUTHORIZED OPERATORS / executeSwapFor ==========
+
+    function test_SetAuthorizedOperator() public {
+        address vault = address(0xBEEF);
+        executor.setAuthorizedOperator(vault, true);
+        assertTrue(executor.authorizedOperators(vault));
+
+        executor.setAuthorizedOperator(vault, false);
+        assertFalse(executor.authorizedOperators(vault));
+    }
+
+    function test_SetAuthorizedOperator_OnlyOwner_Reverts() public {
+        vm.prank(user);
+        vm.expectRevert(PanoramaExecutor.Unauthorized.selector);
+        executor.setAuthorizedOperator(address(0xBEEF), true);
+    }
+
+    function test_ExecuteSwapFor_UnauthorizedOperator_Reverts() public {
+        PanoramaExecutor.Transfer[] memory transfers = new PanoramaExecutor.Transfer[](0);
+        bytes memory data = abi.encode(address(tokenA), address(tokenB), uint256(0), uint256(0), user, false);
+
+        vm.prank(user); // user is not an authorized operator
+        vm.expectRevert(PanoramaExecutor.OperatorNotAuthorized.selector);
+        executor.executeSwapFor(user, AERODROME_ID, SWAP_SELECTOR, transfers, block.timestamp + 1, data);
+    }
+
+    function test_ExecuteSwapFor_UsesUserAdapter() public {
+        address vault = address(0xAABB);
+        executor.setAuthorizedOperator(vault, true);
+
+        uint256 amountIn = 50e18;
+        tokenA.mint(vault, amountIn);
+
+        bytes memory swapData = abi.encode(
+            address(tokenA), address(tokenB), amountIn, uint256(0), user, false
+        );
+        PanoramaExecutor.Transfer[] memory transfers = new PanoramaExecutor.Transfer[](1);
+        transfers[0] = PanoramaExecutor.Transfer({token: address(tokenA), amount: amountIn});
+
+        vm.startPrank(vault);
+        tokenA.approve(address(executor), amountIn);
+        bytes memory result = executor.executeSwapFor(
+            user, AERODROME_ID, SWAP_SELECTOR, transfers, block.timestamp + 1, swapData
+        );
+        vm.stopPrank();
+
+        uint256 amountOut = abi.decode(result, (uint256));
+        assertEq(amountOut, amountIn); // 1:1 mock rate
+
+        // Adapter clone must be the user's, not the vault's
+        address userAdapter = executor.getUserAdapter(AERODROME_ID, user);
+        address vaultAdapter = executor.getUserAdapter(AERODROME_ID, vault);
+        assertTrue(userAdapter != address(0));
+        assertEq(vaultAdapter, address(0)); // vault never gets its own clone
     }
 
     // ========== GENERIC EXECUTE TESTS ==========

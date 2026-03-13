@@ -27,6 +27,10 @@ import {IPanoramaExecutor} from "../interfaces/IPanoramaExecutor.sol";
 contract DCAVault {
     using SafeTransferLib for address;
 
+    // ========== CONSTANTS ==========
+
+    uint256 public constant ADMIN_DELAY = 1 days;
+
     // ========== STRUCTS ==========
 
     struct Order {
@@ -46,9 +50,11 @@ contract DCAVault {
 
     address public owner;
     address public pendingOwner;
+    uint256 public ownershipTransferUnlockAt;
 
     address public keeper;
     address public pendingKeeper;
+    uint256 public keeperChangeUnlockAt;
 
     address public executor;     // PanoramaExecutor
     address public pendingExecutor;
@@ -100,6 +106,7 @@ contract DCAVault {
     error ZeroInterval();
     error Reentrancy();
     error NoPendingProposal();
+    error DelayNotElapsed();
 
     // ========== MODIFIERS ==========
 
@@ -282,9 +289,10 @@ contract DCAVault {
             amount: order.amountPerSwap
         });
 
-        // Call PanoramaExecutor.execute — tokenOut goes to order owner via adapter
-        // Typed call automatically propagates reverts from PanoramaExecutor
-        IPanoramaExecutor(executor).execute(
+        // Call PanoramaExecutor.executeSwapFor — swap runs in the user's own adapter context,
+        // preserving per-user adapter isolation. Typed call propagates reverts verbatim.
+        IPanoramaExecutor(executor).executeSwapFor(
+            order.owner,
             protocolId,
             bytes4(keccak256("swap(address,address,uint256,uint256,address,bool)")),
             transfers,
@@ -330,22 +338,25 @@ contract DCAVault {
     // --- Keeper ---
 
     /**
-     * @notice Propose a new keeper. Must be accepted by the proposed address.
+     * @notice Propose a new keeper. Change is locked for ADMIN_DELAY before it can be accepted.
      */
     function proposeKeeper(address newKeeper) external onlyOwner {
         if (newKeeper == address(0)) revert ZeroAddress();
         pendingKeeper = newKeeper;
+        keeperChangeUnlockAt = block.timestamp + ADMIN_DELAY;
         emit KeeperProposed(newKeeper);
     }
 
     /**
-     * @notice Accept keeper role. Must be called by the proposed address.
+     * @notice Accept keeper role. Must be called by the proposed address after ADMIN_DELAY.
      */
     function acceptKeeper() external {
         if (msg.sender != pendingKeeper) revert Unauthorized();
+        if (block.timestamp < keeperChangeUnlockAt) revert DelayNotElapsed();
         emit KeeperUpdated(keeper, pendingKeeper);
         keeper = pendingKeeper;
         pendingKeeper = address(0);
+        keeperChangeUnlockAt = 0;
     }
 
     // --- Executor ---
@@ -373,22 +384,25 @@ contract DCAVault {
     // --- Ownership ---
 
     /**
-     * @notice Propose a new owner. Must be accepted by the proposed address.
+     * @notice Propose a new owner. Change is locked for ADMIN_DELAY before it can be accepted.
      */
     function proposeOwner(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
         pendingOwner = newOwner;
+        ownershipTransferUnlockAt = block.timestamp + ADMIN_DELAY;
         emit OwnershipProposed(newOwner);
     }
 
     /**
-     * @notice Accept ownership. Must be called by the proposed address.
+     * @notice Accept ownership. Must be called by the proposed address after ADMIN_DELAY.
      */
     function acceptOwnership() external {
         if (msg.sender != pendingOwner) revert Unauthorized();
+        if (block.timestamp < ownershipTransferUnlockAt) revert DelayNotElapsed();
         emit OwnershipTransferred(owner, pendingOwner);
         owner = pendingOwner;
         pendingOwner = address(0);
+        ownershipTransferUnlockAt = 0;
     }
 
     // ========== INTERNAL ==========

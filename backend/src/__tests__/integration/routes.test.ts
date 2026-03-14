@@ -97,6 +97,7 @@ describe("/swap/prepare — executePrepareSwapBundle", () => {
     vi.clearAllMocks();
     mockService.getQuote.mockResolvedValue({ amountOut: 3000n, route: [] });
     mockService.checkAllowance.mockResolvedValue({ allowance: 0n, sufficient: false });
+    mockService.getTokenBalance.mockResolvedValue(10000000000000000000n);
   });
 
   it("returns a bundle with approve + execute steps for ERC-20 swap", async () => {
@@ -319,6 +320,7 @@ describe("Bundle structure invariants (all routes)", () => {
     vi.clearAllMocks();
     mockService.getQuote.mockResolvedValue({ amountOut: 1000n, route: [] });
     mockService.checkAllowance.mockResolvedValue({ allowance: 99999n, sufficient: true });
+    mockService.getTokenBalance.mockResolvedValue(999999n);
   });
 
   it("every execute step targets the executor address", async () => {

@@ -31,7 +31,13 @@ export async function buildAerodromeSwapBundle(
   if (isNativeETH(tokenIn)) {
     ethValue = amountIn;
   } else {
-    const { allowance } = await aerodromeService.checkAllowance(tokenIn, userAddress, executorAddress, amountIn);
+    const [{ allowance }, balance] = await Promise.all([
+      aerodromeService.withRetry(() => aerodromeService.checkAllowance(tokenIn, userAddress, executorAddress, amountIn)),
+      aerodromeService.withRetry(() => aerodromeService.getTokenBalance(tokenIn, userAddress)),
+    ]);
+    if (balance < amountIn) {
+      throw new Error(`Insufficient token balance: have ${balance}, need ${amountIn}`);
+    }
     builder.addApproveIfNeeded(tokenIn, executorAddress, allowance, amountIn, "Approve token for swap");
   }
 

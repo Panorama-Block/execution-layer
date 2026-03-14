@@ -15,6 +15,7 @@ vi.mock("../../../shared/services/aerodrome.service", () => ({
   aerodromeService: {
     getQuote: vi.fn(),
     checkAllowance: vi.fn(),
+    getTokenBalance: vi.fn(),
   },
 }));
 
@@ -22,8 +23,9 @@ import { aerodromeService } from "../../../shared/services/aerodrome.service";
 import { executePrepareSwapBundle } from "../../../modules/swap/usecases/prepare-swap.usecase";
 import { ADAPTER_SELECTORS, PANORAMA_EXECUTOR_ABI_EXECUTE } from "../../../shared/bundle-builder";
 
-const mockGetQuote      = vi.mocked(aerodromeService.getQuote);
-const mockCheckAllowance = vi.mocked(aerodromeService.checkAllowance);
+const mockGetQuote        = vi.mocked(aerodromeService.getQuote);
+const mockCheckAllowance  = vi.mocked(aerodromeService.checkAllowance);
+const mockGetTokenBalance = vi.mocked(aerodromeService.getTokenBalance);
 
 const TOKEN_IN  = "0x4200000000000000000000000000000000000006"; // WETH
 const TOKEN_OUT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // USDC
@@ -35,6 +37,8 @@ describe("executePrepareSwapBundle", () => {
     vi.clearAllMocks();
     mockGetQuote.mockResolvedValue({ amountOut: 2000n, route: [] });
     mockCheckAllowance.mockResolvedValue({ allowance: 0n, sufficient: false });
+    // Return sufficient balance by default (> amountIn = 1000)
+    mockGetTokenBalance.mockResolvedValue(999999n);
   });
 
   it("includes approve step when allowance is insufficient", async () => {

@@ -117,15 +117,17 @@ export async function executeSwapPrepare(params: {
     tokenIn, tokenOut, amountIn: params.amount, stable: "auto",
   });
 
-  // Delegate bundle construction to the canonical usecase
+  // Delegate bundle construction to the canonical usecase.
+  // Pass amountOut from the quote already obtained to skip the redundant on-chain getQuote call.
   const result = await executePrepareSwapBundle({
-    userAddress:     params.receiver || params.sender,
+    userAddress:          params.receiver || params.sender,
     tokenIn,
     tokenOut,
-    amountIn:        params.amount,
-    stable:          quote.stable,
-    slippageBps:     50,
-    deadlineMinutes: 20,
+    amountIn:             params.amount,
+    stable:               quote.stable,
+    slippageBps:          50,
+    deadlineMinutes:      20,
+    amountOutPrecomputed: quote.amountOut,
   });
 
   return {

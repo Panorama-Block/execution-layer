@@ -30,17 +30,14 @@ export async function executeGetSwapQuote(req: SwapQuoteRequest): Promise<SwapQu
   let stable: boolean;
 
   if (req.stable === "auto") {
-    // Try both pool types, silently ignore missing pools, pick best output.
-    let volatileOut = 0n;
-    let stableOut   = 0n;
+    // Try both pool types in parallel, silently ignore missing pools, pick best output.
+    const [volatileResult, stableResult] = await Promise.allSettled([
+      aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, false),
+      aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, true),
+    ]);
 
-    try {
-      ({ amountOut: volatileOut } = await aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, false));
-    } catch { /* no volatile pool */ }
-
-    try {
-      ({ amountOut: stableOut } = await aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, true));
-    } catch { /* no stable pool */ }
+    const volatileOut = volatileResult.status === "fulfilled" ? volatileResult.value.amountOut : 0n;
+    const stableOut   = stableResult.status  === "fulfilled" ? stableResult.value.amountOut  : 0n;
 
     if (volatileOut === 0n && stableOut === 0n) {
       throw new Error("No liquidity available on Aerodrome for this pair");

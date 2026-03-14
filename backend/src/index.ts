@@ -22,6 +22,13 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   : ["http://localhost:3000", "http://localhost:3010"];
 
 app.use(helmet());
+
+// Request logger — mostra todas as requisições no terminal para facilitar debug local
+app.use((req, _res, next) => {
+  console.log(`[execution-layer] ← ${req.method} ${req.path}`);
+  next();
+});
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (curl, server-to-server)

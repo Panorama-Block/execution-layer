@@ -70,7 +70,9 @@ contract AerodromeAdapter is IProtocolAdapter {
         address routeTo   = tokenOut == address(0) ? weth : tokenOut;
         routes[0] = IAerodromeRouter.Route({from: routeFrom, to: routeTo, stable: stable, factory: factory});
 
-        uint256 deadline = block.timestamp;
+        // Use a 5-minute buffer from the current block to allow tx propagation
+        // while still providing meaningful deadline protection against stale txs.
+        uint256 deadline = block.timestamp + 300;
         uint256[] memory amounts;
 
         if (tokenIn == address(0)) {

@@ -30,23 +30,26 @@ export async function executeGetSwapQuote(req: SwapQuoteRequest): Promise<SwapQu
   let stable: boolean;
 
   if (req.stable === "auto") {
-    // Try both pool types, silently ignore missing pools, pick best output.
-    let volatileOut = 0n;
-    let stableOut   = 0n;
+    // Try both pool types in parallel, silently ignore missing pools, pick best output.
+    const [volatileResult, stableResult] = await Promise.allSettled([
+      aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, false),
+      aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, true),
+    ]);
 
-    try {
-      ({ amountOut: volatileOut } = await aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, false));
-    } catch { /* no volatile pool */ }
-
-    try {
-      ({ amountOut: stableOut } = await aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, true));
-    } catch { /* no stable pool */ }
+    const volatileOut = volatileResult.status === "fulfilled" ? volatileResult.value.amountOut : 0n;
+    const stableOut   = stableResult.status  === "fulfilled" ? stableResult.value.amountOut  : 0n;
 
     if (volatileOut === 0n && stableOut === 0n) {
+      // Distinguish: if both calls rejected it's an RPC issue (retryable), not missing liquidity.
+      if (volatileResult.status === "rejected" && stableResult.status === "rejected") {
+        throw new Error(`RPC error fetching pool quotes. Please try again.`);
+      }
       throw new Error("No liquidity available on Aerodrome for this pair");
     }
 
-    stable    = stableOut > volatileOut;
+    // Only prefer stable pool if it's meaningfully better (≥1% = 100 bps).
+    // Avoids picking thin stable pools that pass getAmountsOut but revert on-chain.
+    stable    = stableOut > (volatileOut * 10100n) / 10000n;
     amountOut = stable ? stableOut : volatileOut;
   } else {
     stable = req.stable ?? false;

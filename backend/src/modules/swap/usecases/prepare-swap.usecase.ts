@@ -13,6 +13,8 @@ export interface PrepareSwapRequest {
   stable?: boolean;
   slippageBps?: number;
   deadlineMinutes?: number;
+  /** Pre-computed amountOut from a prior quote — skips the redundant on-chain getQuote call. */
+  amountOutPrecomputed?: string;
 }
 
 export interface PrepareSwapResponse {
@@ -41,25 +43,28 @@ export async function executePrepareSwapBundle(
   const slippageBps     = req.slippageBps ?? 50;
   const deadlineMinutes = req.deadlineMinutes ?? 20;
 
-  // Get quote on-chain
-  const { amountOut } = await aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, stable);
-  const amountOutMin  = applySlippage(amountOut, slippageBps);
+  // Use pre-computed amountOut if provided (avoids a redundant on-chain RPC call).
+  // Otherwise fetch the quote from the pool.
+  const amountOut = req.amountOutPrecomputed
+    ? BigInt(req.amountOutPrecomputed)
+    : (await aerodromeService.getQuote(req.tokenIn, req.tokenOut, amountIn, stable)).amountOut;
+  const amountOutMin = applySlippage(amountOut, slippageBps);
 
   const deadline = getDeadline(deadlineMinutes);
 
-  const builder = await buildAerodromeSwapBundle({
-    userAddress:     req.userAddress,
-    tokenIn:         req.tokenIn,
-    tokenOut:        req.tokenOut,
-    amountIn,
-    amountOutMin,
-    stable,
-    deadline,
-    executorAddress,
-    chainId:         chain.chainId,
-  });
-
-  const [decimalsIn, decimalsOut] = await Promise.all([
+  // Run bundle construction and decimals fetch in parallel — both are independent.
+  const [builder, decimalsIn, decimalsOut] = await Promise.all([
+    buildAerodromeSwapBundle({
+      userAddress:     req.userAddress,
+      tokenIn:         req.tokenIn,
+      tokenOut:        req.tokenOut,
+      amountIn,
+      amountOutMin,
+      stable,
+      deadline,
+      executorAddress,
+      chainId:         chain.chainId,
+    }),
     getTokenDecimals(req.tokenIn),
     getTokenDecimals(req.tokenOut),
   ]);

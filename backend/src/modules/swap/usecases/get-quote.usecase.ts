@@ -40,6 +40,10 @@ export async function executeGetSwapQuote(req: SwapQuoteRequest): Promise<SwapQu
     const stableOut   = stableResult.status  === "fulfilled" ? stableResult.value.amountOut  : 0n;
 
     if (volatileOut === 0n && stableOut === 0n) {
+      // Distinguish: if both calls rejected it's an RPC issue (retryable), not missing liquidity.
+      if (volatileResult.status === "rejected" && stableResult.status === "rejected") {
+        throw new Error(`RPC error fetching pool quotes. Please try again.`);
+      }
       throw new Error("No liquidity available on Aerodrome for this pair");
     }
 

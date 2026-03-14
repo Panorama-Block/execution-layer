@@ -31,13 +31,29 @@ export async function buildAerodromeSwapBundle(
   if (isNativeETH(tokenIn)) {
     ethValue = amountIn;
   } else {
-    const [{ allowance }, balance] = await Promise.all([
+    // Read allowance and balance concurrently.
+    // If the RPC returns empty data (eth_call → 0x) — common with public Base RPC rate-limiting —
+    // ethers v6 throws CALL_EXCEPTION with data=null ("missing revert data").
+    // Safe fallbacks: allowance=0 (adds approve step), balance skip (executor will revert if needed).
+    const [allowanceResult, balanceResult] = await Promise.allSettled([
       aerodromeService.withRetry(() => aerodromeService.checkAllowance(tokenIn, userAddress, executorAddress, amountIn)),
       aerodromeService.withRetry(() => aerodromeService.getTokenBalance(tokenIn, userAddress)),
     ]);
-    if (balance < amountIn) {
-      throw new Error(`Insufficient token balance: have ${balance}, need ${amountIn}`);
+
+    const allowance = allowanceResult.status === "fulfilled" ? allowanceResult.value.allowance : 0n;
+    if (allowanceResult.status === "rejected") {
+      console.warn(`[aerodrome-swap] allowance read failed — assuming 0 (will add approve step): ${(allowanceResult.reason as Error)?.message}`);
     }
+
+    if (balanceResult.status === "fulfilled") {
+      const balance = balanceResult.value;
+      if (balance < amountIn) {
+        throw new Error(`Insufficient token balance: have ${balance}, need ${amountIn}`);
+      }
+    } else {
+      console.warn(`[aerodrome-swap] balance read failed — skipping check, executor will revert if insufficient: ${(balanceResult.reason as Error)?.message}`);
+    }
+
     builder.addApproveIfNeeded(tokenIn, executorAddress, allowance, amountIn, "Approve token for swap");
   }
 

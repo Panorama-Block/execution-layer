@@ -119,13 +119,15 @@ export async function executeSwapPrepare(params: {
 
   // Delegate bundle construction to the canonical usecase.
   // Pass amountOut from the quote already obtained to skip the redundant on-chain getQuote call.
+  // Use 100 bps (1%) as default slippage for volatile pairs — 50 bps is too tight and causes
+  // frequent InsufficientOutputAmount (0x7939f424) reverts on low-liquidity pairs like USDC/cbBTC.
   const result = await executePrepareSwapBundle({
     userAddress:          params.receiver || params.sender,
     tokenIn,
     tokenOut,
     amountIn:             params.amount,
     stable:               quote.stable,
-    slippageBps:          50,
+    slippageBps:          quote.stable ? 20 : 100,
     deadlineMinutes:      20,
     amountOutPrecomputed: quote.amountOut,
   });

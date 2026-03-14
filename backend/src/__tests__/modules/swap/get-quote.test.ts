@@ -152,8 +152,16 @@ describe("executeGetSwapQuote", () => {
       expect(result.amountOut).toBe("1800");
     });
 
-    it("throws when both pools throw", async () => {
+    it("throws RPC error when both pools reject (network failure)", async () => {
       mockGetQuote.mockRejectedValue(new Error("no pool"));
+
+      await expect(
+        executeGetSwapQuote({ tokenIn: TOKEN_IN, tokenOut: TOKEN_OUT, amountIn: "1000", stable: "auto" })
+      ).rejects.toThrow("RPC error fetching pool quotes");
+    });
+
+    it("throws no liquidity when both pools fulfill with 0", async () => {
+      mockGetQuote.mockResolvedValue({ amountOut: 0n, route: [] });
 
       await expect(
         executeGetSwapQuote({ tokenIn: TOKEN_IN, tokenOut: TOKEN_OUT, amountIn: "1000", stable: "auto" })

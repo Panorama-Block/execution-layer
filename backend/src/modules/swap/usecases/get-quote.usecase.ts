@@ -46,7 +46,9 @@ export async function executeGetSwapQuote(req: SwapQuoteRequest): Promise<SwapQu
       throw new Error("No liquidity available on Aerodrome for this pair");
     }
 
-    stable    = stableOut > volatileOut;
+    // Only prefer stable pool if it's meaningfully better (≥1% = 100 bps).
+    // Avoids picking thin stable pools that pass getAmountsOut but revert on-chain.
+    stable    = stableOut > (volatileOut * 10100n) / 10000n;
     amountOut = stable ? stableOut : volatileOut;
   } else {
     stable = req.stable ?? false;

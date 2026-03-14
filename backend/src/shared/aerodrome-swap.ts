@@ -31,13 +31,14 @@ export async function buildAerodromeSwapBundle(
   if (isNativeETH(tokenIn)) {
     ethValue = amountIn;
   } else {
-    // Read allowance and balance concurrently.
-    // If the RPC returns empty data (eth_call → 0x) — common with public Base RPC rate-limiting —
-    // ethers v6 throws CALL_EXCEPTION with data=null ("missing revert data").
-    // Safe fallbacks: allowance=0 (adds approve step), balance skip (executor will revert if needed).
+    // Read allowance and balance concurrently with a hard 3 s timeout.
+    // In production the public Base RPC can take 5-7 s per call; retrying triples the wait
+    // and leaves the quote stale (increasing slippage risk). With a short timeout:
+    //   - allowance failure → assume 0 → add approve step (safe, slightly more gas)
+    //   - balance failure   → skip check → executor reverts on-chain if truly insufficient
     const [allowanceResult, balanceResult] = await Promise.allSettled([
-      aerodromeService.withRetry(() => aerodromeService.checkAllowance(tokenIn, userAddress, executorAddress, amountIn)),
-      aerodromeService.withRetry(() => aerodromeService.getTokenBalance(tokenIn, userAddress)),
+      aerodromeService.withTimeout(() => aerodromeService.checkAllowance(tokenIn, userAddress, executorAddress, amountIn), 3000),
+      aerodromeService.withTimeout(() => aerodromeService.getTokenBalance(tokenIn, userAddress), 3000),
     ]);
 
     const allowance = allowanceResult.status === "fulfilled" ? allowanceResult.value.allowance : 0n;

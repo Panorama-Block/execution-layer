@@ -73,6 +73,79 @@ export const SWAP_PAIRS: SwapPairConfig[] = [
     stable: true,
     enabled: true,
   },
+  // VIRTUAL pairs
+  {
+    id: "virtual-weth-volatile",
+    tokenIn: { symbol: "VIRTUAL", address: "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b", decimals: 18 },
+    tokenOut: { symbol: "WETH", address: "0x4200000000000000000000000000000000000006", decimals: 18 },
+    stable: false,
+    enabled: true,
+  },
+  {
+    id: "weth-virtual-volatile",
+    tokenIn: { symbol: "WETH", address: "0x4200000000000000000000000000000000000006", decimals: 18 },
+    tokenOut: { symbol: "VIRTUAL", address: "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b", decimals: 18 },
+    stable: false,
+    enabled: true,
+  },
+  {
+    id: "virtual-usdc-volatile",
+    tokenIn: { symbol: "VIRTUAL", address: "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b", decimals: 18 },
+    tokenOut: { symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 },
+    stable: false,
+    enabled: true,
+  },
+  {
+    id: "usdc-virtual-volatile",
+    tokenIn: { symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 },
+    tokenOut: { symbol: "VIRTUAL", address: "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b", decimals: 18 },
+    stable: false,
+    enabled: true,
+  },
+  // msETH pairs
+  {
+    id: "mseth-weth-stable",
+    tokenIn: { symbol: "msETH", address: "0x7ba6F01772924a82d9626c126347A28299E98c98", decimals: 18 },
+    tokenOut: { symbol: "WETH", address: "0x4200000000000000000000000000000000000006", decimals: 18 },
+    stable: true,
+    enabled: true,
+  },
+  {
+    id: "weth-mseth-stable",
+    tokenIn: { symbol: "WETH", address: "0x4200000000000000000000000000000000000006", decimals: 18 },
+    tokenOut: { symbol: "msETH", address: "0x7ba6F01772924a82d9626c126347A28299E98c98", decimals: 18 },
+    stable: true,
+    enabled: true,
+  },
+  // EURC pairs
+  {
+    id: "eurc-weth-volatile",
+    tokenIn: { symbol: "EURC", address: "0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42", decimals: 6 },
+    tokenOut: { symbol: "WETH", address: "0x4200000000000000000000000000000000000006", decimals: 18 },
+    stable: false,
+    enabled: true,
+  },
+  {
+    id: "weth-eurc-volatile",
+    tokenIn: { symbol: "WETH", address: "0x4200000000000000000000000000000000000006", decimals: 18 },
+    tokenOut: { symbol: "EURC", address: "0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42", decimals: 6 },
+    stable: false,
+    enabled: true,
+  },
+  {
+    id: "eurc-usdc-stable",
+    tokenIn: { symbol: "EURC", address: "0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42", decimals: 6 },
+    tokenOut: { symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 },
+    stable: true,
+    enabled: true,
+  },
+  {
+    id: "usdc-eurc-stable",
+    tokenIn: { symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 },
+    tokenOut: { symbol: "EURC", address: "0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42", decimals: 6 },
+    stable: true,
+    enabled: true,
+  },
 ];
 
 export function getSwapPairById(id: string): SwapPairConfig | undefined {

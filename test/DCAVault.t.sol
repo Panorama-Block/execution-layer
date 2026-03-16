@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import {DCAVault} from "../contracts/core/DCAVault.sol";
+import {DCAVault} from "../contracts/aerodrome/core/DCAVault.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 // ---------------------------------------------------------------------------

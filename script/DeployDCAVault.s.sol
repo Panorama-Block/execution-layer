@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
-import {DCAVault} from "../contracts/core/DCAVault.sol";
+import {DCAVault} from "../contracts/aerodrome/core/DCAVault.sol";
 
 /**
  * @title DeployDCAVault

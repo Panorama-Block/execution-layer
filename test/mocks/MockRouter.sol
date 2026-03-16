@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {IAerodromeRouter} from "../../contracts/interfaces/IAerodromeRouter.sol";
+import {IAerodromeRouter} from "../../contracts/aerodrome/interfaces/IAerodromeRouter.sol";
 import {MockERC20} from "./MockERC20.sol";
 
 /**

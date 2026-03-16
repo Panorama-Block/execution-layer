@@ -1,90 +1,264 @@
 # PanoramaBlock Execution Layer
 
-On-chain execution infrastructure for DeFi operations on Base. Routes operations through a central executor contract to registered protocol adapters.
+On-chain execution infrastructure for DeFi operations. Prepares unsigned transaction bundles that the backend delivers to the frontend for signing — the backend never holds private keys.
 
-Built for the **Base Hackathon 2026**.
+## Chains
+
+| Chain | Status | Contracts |
+|---|---|---|
+| **Base** | Deployed (hackathon) | PanoramaExecutor, AerodromeAdapter, DCAVault |
+| **Avalanche C-Chain** | Deploy pending | PanoramaSwap, PanoramaLend |
+
+---
 
 ## Table of Contents
 
 - [Architecture](#architecture)
-- [Deployed Contracts (Base Mainnet)](#deployed-contracts-base-mainnet)
+- [Avalanche Layer](#avalanche-layer)
+  - [Contracts](#contracts)
+  - [Backend Routes](#backend-routes)
+  - [Deploy](#deploy)
+  - [Environment Variables](#environment-variables)
+- [Base Layer (Hackathon)](#base-layer-hackathon)
 - [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-- [API Endpoints](#api-endpoints)
-- [Creating a New Service Module](#creating-a-new-service-module)
-- [Shared Utilities](#shared-utilities)
-- [Supported Chains](#supported-chains)
-- [Tech Stack](#tech-stack)
+- [Running Locally](#running-locally)
+- [Tests](#tests)
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      Frontend                            │
-│              (connects wallet, signs txs)                 │
-└───────────────────────┬─────────────────────────────────┘
-                        │ HTTP
-┌───────────────────────▼─────────────────────────────────┐
-│                   Backend (Express)                       │
-│                                                           │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐      │
-│  │Liquid Staking│ │     Swap     │ │     DCA      │      │
-│  │   Module     │ │   Module     │ │   Module     │      │
-│  └──────────────┘ └──────────────┘ └──────────────┘      │
-│                                                           │
-│  Prepares unsigned transaction bundles (non-custodial)    │
-└───────────────────────┬─────────────────────────────────┘
-                        │ On-chain calls
-┌───────────────────────▼─────────────────────────────────┐
-│              Smart Contracts (Base Mainnet)                │
-│                                                           │
-│  ┌─────────────────────────────────────────┐              │
-│  │          PanoramaExecutor (core)         │              │
-│  │  Registers adapter implementations      │              │
-│  │  Creates per-user clones (EIP-1167)     │              │
-│  └──────────────────┬──────────────────────┘              │
-│                     │ registerAdapter() / clone per user   │
-│  ┌──────────────────▼──────────────────────┐              │
-│  │   AerodromeAdapter (implementation)      │              │
-│  │  swap / addLiquidity / removeLiquidity   │              │
-│  │  stake / unstake / claimRewards          │              │
-│  └──────────────┬──────────────────────────┘              │
-│                 │ EIP-1167 minimal proxy clones            │
-│  ┌──────────────▼──────────────────────────┐              │
-│  │  User Clone A │ User Clone B │ Clone N  │              │
-│  │  (isolated)   │ (isolated)   │   ...    │              │
-│  └─────────────────────────────────────────┘              │
-│                                                           │
-│  ┌─────────────────────────────────────────┐              │
-│  │   Future: AaveLendingAdapter, etc.       │              │
-│  └─────────────────────────────────────────┘              │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│               Backend (Express)               │
+│                                               │
+│  /avax/swap     /avax/lending                 │  ← Avalanche C-Chain
+│  /swap  /staking  /dca                        │  ← Base
+│                                               │
+│  Builds unsigned TransactionBundles           │
+│  (approve + contract call per action)         │
+└────────────────────┬─────────────────────────┘
+                     │ steps[]: { to, data, value }
+                     │ signed by user wallet
+┌────────────────────▼─────────────────────────┐
+│            Avalanche C-Chain (43114)          │
+│                                               │
+│  ┌─────────────────┐  ┌────────────────────┐  │
+│  │  PanoramaSwap   │  │   PanoramaLend     │  │
+│  │                 │  │                    │  │
+│  │ swapTokens…     │  │ supply / redeem    │  │
+│  │ swapAVAX…       │  │ borrow / repay     │  │
+│  │ swapTokensForAV │  │ supplyAVAX / redee │  │
+│  └────────┬────────┘  └──────────┬─────────┘  │
+│           │                      │             │
+│  ┌────────▼────────┐  ┌──────────▼──────────┐  │
+│  │  Trader Joe V1  │  │   Benqi Finance     │  │
+│  │  Router         │  │   qTokens +         │  │
+│  │  (0x60aE61…)    │  │   Comptroller       │  │
+│  └─────────────────┘  └─────────────────────┘  │
+└───────────────────────────────────────────────┘
 ```
 
-### How it works
-
-1. **Backend** receives a request (e.g., "enter staking position with 0.01 WETH + 10 USDC")
-2. Backend queries on-chain state (allowances, pool addresses, gauge addresses)
-3. Backend builds an ordered **TransactionBundle** (approve → addLiquidity → stake)
-4. Frontend receives the bundle, signs each transaction with MetaMask, and submits to Base
-5. **PanoramaExecutor** creates (or reuses) a **per-user adapter clone** via EIP-1167 minimal proxy
-6. The user's clone interacts with Aerodrome contracts (Router, Factory, Gauge) — positions are fully isolated
-
-The backend **never holds private keys**. It only prepares unsigned calldata.
-
-### Per-user adapter clones (EIP-1167)
-
-Each user gets their own adapter clone on first interaction (~45k gas, one-time). The clone is a minimal proxy that delegates all logic to the registered adapter implementation but has its own storage. This means:
-
-- **Isolated positions**: Each user's gauge deposits, LP tokens, and rewards are separate
-- **Deterministic addresses**: The backend can predict a user's clone address via `predictUserAdapter(protocolId, user)` without any on-chain state
-- **No shared accounting**: No need for per-user mappings or off-chain ledgers
+**Flow:**
+1. Backend receives request (e.g. "prepare swap 1 AVAX → USDC")
+2. Backend checks on-chain state (allowances, quotes)
+3. Backend returns a `TransactionBundle` — ordered steps ready to sign
+4. User signs each step with their wallet and broadcasts
+5. Transaction goes through PanoramaSwap or PanoramaLend → generates AVAX gas fees
 
 ---
 
-## Deployed Contracts (Base Mainnet)
+## Avalanche Layer
+
+### Contracts
+
+Located at `contracts/avax/`.
+
+#### PanoramaSwap (`contracts/avax/core/PanoramaSwap.sol`)
+
+Swap router wrapper for **Trader Joe V1** on Avalanche C-Chain. Every swap goes through this contract, generating a transaction that burns AVAX.
+
+| Function | Description |
+|---|---|
+| `swapTokensForTokens(amountIn, amountOutMin, path, deadline)` | ERC20 → ERC20 |
+| `swapAVAXForTokens(amountOutMin, path, deadline) payable` | AVAX → ERC20 |
+| `swapTokensForAVAX(amountIn, amountOutMin, path, deadline)` | ERC20 → AVAX |
+| `getAmountsOut(amountIn, path)` | Quote — expected output amounts |
+
+**Key addresses:**
+```
+Trader Joe V1 Router: 0x60aE616a2155Ee3d9A68541Ba4544862310933d4
+WAVAX:                0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7
+```
+
+#### PanoramaLend (`contracts/avax/lending/PanoramaLend.sol`)
+
+Lending wrapper for **Benqi Finance** on Avalanche C-Chain. Routes supply, redeem, borrow, and repay through this contract.
+
+| Function | Description |
+|---|---|
+| `supply(qToken, amount)` | Supply ERC20 → receive qTokens |
+| `redeem(qToken, qTokenAmount)` | Redeem qTokens → receive ERC20 |
+| `borrow(qToken, amount)` | Borrow ERC20 against collateral |
+| `repay(qToken, amount)` | Repay ERC20 borrow |
+| `supplyAVAX() payable` | Supply native AVAX → receive qiAVAX |
+| `redeemAVAX(qTokenAmount)` | Redeem qiAVAX → receive AVAX |
+| `borrowAVAX(amount)` | Borrow native AVAX against collateral |
+| `repayAVAX() payable` | Repay native AVAX borrow |
+
+**Key addresses:**
+```
+Benqi Comptroller: 0x486Af39519B4Dc9a7fCcd318217352830E8AD9b4
+qiAVAX:            0x5C0401e81Bc07Ca70fAD469b451682c0d747Ef1c
+qiUSDC (USDC.e):   0xBEb5d47A3f720Ec0a390d04b4d41ED7d9688bC7F
+qiUSDT:            0xc9e5999b8e75C3fEB117F6f73E664b9f3C8ca65C
+qiETH:             0x334AD834Cd4481BB02d09615E7c11a00579A7909
+```
+
+#### Interfaces (`contracts/avax/interfaces/`)
+
+| File | Description |
+|---|---|
+| `ITraderJoeRouter.sol` | Trader Joe V1 router interface |
+| `IBenqiToken.sol` | `IBenqiToken`, `IBenqiAVAX`, `IComptroller` |
+
+---
+
+### Backend Routes
+
+Located at `backend/src/modules/avax-swap/` and `backend/src/modules/avax-lending/`.
+
+#### Swap (`/avax/swap`)
+
+| Method | Endpoint | Body | Description |
+|---|---|---|---|
+| `GET` | `/avax/swap/pairs` | — | Supported swap pairs |
+| `POST` | `/avax/swap/quote` | `tokenIn, tokenOut, amountIn, slippageBps?` | Price quote (no tx) |
+| `POST` | `/avax/swap/prepare` | `userAddress, tokenIn, tokenOut, amountIn, slippageBps?, deadlineMinutes?` | Bundle: `[approve?] + swap` |
+
+**Example — prepare swap:**
+```bash
+curl -X POST http://localhost:3010/avax/swap/prepare \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userAddress": "0xYourAddress",
+    "tokenIn": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
+    "tokenOut": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+    "amountIn": "1000000000000000000",
+    "slippageBps": 50
+  }'
+```
+
+Response:
+```json
+{
+  "bundle": {
+    "steps": [
+      {
+        "to": "0x<PanoramaSwap>",
+        "data": "0x...",
+        "value": "1000000000000000000",
+        "chainId": 43114,
+        "description": "Swap via PanoramaSwap (avax-to-token)"
+      }
+    ],
+    "totalSteps": 1,
+    "summary": "Swap avax-to-token via PanoramaSwap on Avalanche"
+  },
+  "metadata": {
+    "tokenIn": "0xB31f66...",
+    "tokenOut": "0xB97EF9...",
+    "amountIn": "1000000000000000000",
+    "amountOut": "9500000",
+    "amountOutMin": "9025000",
+    "path": ["0xB31f66...", "0xB97EF9..."],
+    "swapType": "avax-to-token",
+    "slippageBps": 50,
+    "priceImpact": "-9999999.5000"
+  }
+}
+```
+
+#### Lending (`/avax/lending`)
+
+| Method | Endpoint | Body | Description |
+|---|---|---|---|
+| `GET` | `/avax/lending/markets` | — | Benqi markets with live supply/borrow rates |
+| `GET` | `/avax/lending/position/:userAddress` | — | User's active qToken balances |
+| `POST` | `/avax/lending/prepare-supply` | `userAddress, qTokenAddress, amount` | Bundle: `[approve?] + supply/supplyAVAX` |
+| `POST` | `/avax/lending/prepare-redeem` | `userAddress, qTokenAddress, qTokenAmount` | Bundle: `[approve qToken] + redeem/redeemAVAX` |
+| `POST` | `/avax/lending/prepare-borrow` | `userAddress, qTokenAddress, amount` | Bundle: `borrow/borrowAVAX` |
+| `POST` | `/avax/lending/prepare-repay` | `userAddress, qTokenAddress, amount` | Bundle: `[approve?] + repay/repayAVAX` |
+
+**Example — supply AVAX:**
+```bash
+curl -X POST http://localhost:3010/avax/lending/prepare-supply \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userAddress": "0xYourAddress",
+    "qTokenAddress": "0x5C0401e81Bc07Ca70fAD469b451682c0d747Ef1c",
+    "amount": "5000000000000000000"
+  }'
+```
+
+**Example — supply USDC.e:**
+```bash
+curl -X POST http://localhost:3010/avax/lending/prepare-supply \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userAddress": "0xYourAddress",
+    "qTokenAddress": "0xBEb5d47A3f720Ec0a390d04b4d41ED7d9688bC7F",
+    "amount": "100000000"
+  }'
+```
+
+Response includes `[approve USDC.e, supply]` or just `[supplyAVAX]` for native AVAX.
+
+---
+
+### Deploy
+
+```bash
+# Set env vars
+source .env  # must have PRIVATE_KEY, AVAX_RPC_URL, SNOWTRACE_API_KEY
+
+# Deploy both contracts + verify on Snowtrace
+forge script script/avax/DeployAvax.s.sol \
+  --rpc-url $AVAX_RPC_URL \
+  --broadcast \
+  --verify \
+  --verifier-url https://api.snowtrace.io/api \
+  --etherscan-api-key $SNOWTRACE_API_KEY \
+  -vvvv
+```
+
+Expected gas cost: **~$1–4** (1.8M gas at 25–100 nAVAX).
+
+After deploy, copy the printed addresses to `.env`:
+```env
+PANORAMA_SWAP_ADDRESS=0x...
+PANORAMA_LEND_ADDRESS=0x...
+```
+
+---
+
+### Environment Variables
+
+Add to `.env` (Avalanche):
+
+```env
+# Avalanche C-Chain
+AVAX_RPC_URL=https://api.avax.network/ext/bc/C/rpc
+SNOWTRACE_API_KEY=your_key_here
+PANORAMA_SWAP_ADDRESS=           # filled after deploy
+PANORAMA_LEND_ADDRESS=           # filled after deploy
+```
+
+---
+
+## Base Layer (Hackathon)
+
+Built for the **Base Hackathon 2026**. Deployed on Base mainnet.
 
 | Contract | Address |
 |---|---|
@@ -92,26 +266,7 @@ Each user gets their own adapter clone on first interaction (~45k gas, one-time)
 | **AerodromeAdapter** | [`0xf919A01510591f38407AA4BBE5711646DB6819e3`](https://basescan.org/address/0xf919A01510591f38407AA4BBE5711646DB6819e3) |
 | **DCAVault** | [`0x748bC7b2c12F5c97F72d19d599118A7672cAc45B`](https://basescan.org/address/0x748bC7b2c12F5c97F72d19d599118A7672cAc45B) |
 
-- **PanoramaExecutor** is the single entry point for swap, liquidity, and staking operations. Creates per-user adapter clones (EIP-1167) for position isolation.
-- **AerodromeAdapter** (implementation) handles swap, liquidity, staking, and reward claiming on Aerodrome Finance. Each user gets their own clone of this adapter.
-- **DCAVault** v2 — stores user DCA orders and deposits. A trusted keeper calls `execute(orderId)` at each interval. TokenOut is forwarded directly to the order owner. Admin functions use a two-step propose/accept pattern. Revert reasons from PanoramaExecutor are bubbled up verbatim.
-
-### When do I need a new adapter?
-
-| Service | Needs new adapter? | Why |
-|---|---|---|
-| Swap (Aerodrome) | **No** | `AerodromeAdapter.swap()` already exists |
-| Liquid Staking (Aerodrome) | **No** | `AerodromeAdapter.stake()/unstake()` already exists |
-| DCA (Aerodrome) | **No** | `DCAVault` routes through existing `PanoramaExecutor` |
-| Lending (Aave/Compound) | **Yes** | New protocol = new adapter (e.g., `AaveLendingAdapter`) |
-| Swap (other DEX) | **Yes** | New protocol = new adapter (e.g., `UniswapAdapter`) |
-
-To register a new adapter implementation:
-```solidity
-// Only the executor owner can register adapter implementations
-// Users will automatically get their own EIP-1167 clone on first use
-executor.registerAdapter(keccak256("aave"), aaveLendingAdapterAddress);
-```
+Base routes: `/swap`, `/staking`, `/dca` — see original module files for details.
 
 ---
 
@@ -119,413 +274,158 @@ executor.registerAdapter(keccak256("aave"), aaveLendingAdapterAddress);
 
 ```
 execution-layer/
-├── contracts/                    # Solidity smart contracts
-│   ├── core/
-│   │   ├── PanoramaExecutor.sol  # Central router (deployed)
-│   │   └── DCAVault.sol          # DCA order vault (deployed)
-│   ├── adapters/
-│   │   └── AerodromeAdapter.sol  # Aerodrome integration (deployed)
-│   ├── interfaces/
-│   │   ├── IProtocolAdapter.sol
-│   │   ├── IAerodromeRouter.sol
-│   │   ├── IAerodromeGauge.sol
-│   │   └── IERC20.sol
-│   └── libraries/
-│       └── SafeTransferLib.sol
 │
-├── backend/
-│   └── src/
-│       ├── index.ts              # Express server entry point
-│       ├── config/
-│       │   ├── chains.ts         # Chain configs (lazy env loading)
-│       │   └── protocols.ts      # Protocol configs (Aerodrome addresses, tokens)
-│       ├── providers/
-│       │   ├── chain.provider.ts
-│       │   ├── aerodrome.provider.ts
-│       │   └── gauge.provider.ts
-│       ├── types/
-│       │   └── transaction.ts    # PreparedTransaction, TransactionBundle
-│       ├── utils/
-│       │   ├── abi.ts            # Contract ABIs (incl. DCA_VAULT_ABI)
-│       │   └── encoding.ts       # Helpers (protocolId via keccak256, deadline, slippage)
-│       ├── usecases/             # Shared usecases (approve, allowance, swap, stake)
-│       ├── controllers/
-│       │   └── execution.controller.ts
-│       ├── routes/
-│       │   └── execution.routes.ts
-│       └── modules/              # Service modules (one per product)
-│           ├── liquid-staking/   # Liquid Staking module (complete)
-│           │   ├── config/staking-pools.ts
-│           │   ├── usecases/
-│           │   │   ├── prepare-enter-strategy.usecase.ts
-│           │   │   ├── prepare-exit-strategy.usecase.ts
-│           │   │   ├── prepare-claim-rewards.usecase.ts
-│           │   │   ├── get-staking-pools.usecase.ts
-│           │   │   └── get-position.usecase.ts
-│           │   ├── controllers/staking.controller.ts
-│           │   └── routes/staking.routes.ts
-│           ├── swap/             # Swap module (complete)
-│           │   ├── config/swap-pairs.ts
-│           │   ├── usecases/
-│           │   │   ├── prepare-swap.usecase.ts   # Bundle: approve? → swap
-│           │   │   ├── get-quote.usecase.ts
-│           │   │   └── get-swap-pairs.usecase.ts
-│           │   ├── controllers/swap.controller.ts
-│           │   └── routes/swap.routes.ts
-│           └── dca/              # DCA module (complete)
-│               ├── usecases/
-│               │   ├── prepare-create-order.usecase.ts  # Bundle: approve → createOrder
-│               │   ├── prepare-cancel-order.usecase.ts  # Bundle: cancel → withdraw?
-│               │   ├── get-orders.usecase.ts
-│               │   └── get-executable-orders.usecase.ts # Keeper endpoint
-│               ├── controllers/dca.controller.ts
-│               └── routes/dca.routes.ts
+├── contracts/
+│   ├── avax/                         ← Avalanche C-Chain (NEW)
+│   │   ├── core/
+│   │   │   └── PanoramaSwap.sol      ← Trader Joe V1 wrapper
+│   │   ├── lending/
+│   │   │   └── PanoramaLend.sol      ← Benqi wrapper
+│   │   └── interfaces/
+│   │       ├── ITraderJoeRouter.sol
+│   │       └── IBenqiToken.sol
+│   │
+│   └── aerodrome/                    ← Base (hackathon)
+│       ├── core/
+│       │   ├── PanoramaExecutor.sol
+│       │   └── DCAVault.sol
+│       ├── adapters/
+│       │   └── AerodromeAdapter.sol
+│       └── interfaces/
 │
-├── frontend/
-│   └── index.html                # Demo UI — Staking, Swap, DCA tabs
+├── backend/src/
+│   ├── index.ts                      ← registers all routes
+│   ├── config/
+│   │   └── chains.ts                 ← base + avalanche configs
+│   ├── shared/services/
+│   │   ├── aerodrome.service.ts      ← Base/Aerodrome queries
+│   │   └── avax.service.ts           ← Avalanche queries (NEW)
+│   ├── utils/
+│   │   └── abi.ts                    ← all contract ABIs
+│   │
+│   └── modules/
+│       ├── avax-swap/                ← Avalanche swap (NEW)
+│       │   ├── config/avax-swap-pairs.ts
+│       │   ├── usecases/
+│       │   │   ├── get-quote.usecase.ts
+│       │   │   └── prepare-swap.usecase.ts
+│       │   ├── controllers/avax-swap.controller.ts
+│       │   └── routes/avax-swap.routes.ts
+│       │
+│       ├── avax-lending/             ← Avalanche lending (NEW)
+│       │   ├── config/avax-lending-markets.ts
+│       │   ├── usecases/
+│       │   │   ├── prepare-supply.usecase.ts
+│       │   │   ├── prepare-redeem.usecase.ts
+│       │   │   ├── prepare-borrow.usecase.ts
+│       │   │   └── prepare-repay.usecase.ts
+│       │   ├── controllers/avax-lending.controller.ts
+│       │   └── routes/avax-lending.routes.ts
+│       │
+│       ├── swap/                     ← Base swap
+│       ├── liquid-staking/           ← Base staking
+│       └── dca/                      ← Base DCA
 │
 ├── script/
-│   ├── Deploy.s.sol              # PanoramaExecutor + AerodromeAdapter deploy
-│   ├── DeployDCAVault.s.sol      # DCAVault deploy
-│   └── DeployTestnet.s.sol       # Base Sepolia deploy
+│   ├── avax/
+│   │   └── DeployAvax.s.sol          ← deploys PanoramaSwap + PanoramaLend (NEW)
+│   ├── Deploy.s.sol                  ← Base deploy
+│   └── DeployDCAVault.s.sol
 │
 └── test/
-    ├── PanoramaExecutor.t.sol    # Unit tests (13 tests)
-    ├── DCAVault.t.sol            # DCAVault unit tests (41 tests)
-    ├── mocks/
-    └── fork/
-        ├── AerodromeAdapter.t.sol
-        └── AerodromeFork.t.sol   # Full flow fork tests (5 tests)
+    ├── avax/                         ← Avalanche tests (NEW)
+    │   ├── mocks/
+    │   │   ├── MockTraderJoeRouter.sol
+    │   │   └── MockBenqi.sol
+    │   ├── PanoramaSwap.t.sol        ← 17 unit tests
+    │   ├── PanoramaLend.t.sol        ← 29 unit tests
+    │   └── fork/
+    │       ├── PanoramaSwapFork.t.sol ← 4 fork tests (Avalanche mainnet)
+    │       └── PanoramaLendFork.t.sol ← 2 fork tests + 2 skipped
+    ├── PanoramaExecutor.t.sol
+    └── DCAVault.t.sol
 ```
 
 ---
 
-## Getting Started
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) >= 18
-- [Foundry](https://book.getfoundry.sh/) (for smart contracts)
-
-### 1. Install dependencies
+## Running Locally
 
 ```bash
-# Backend
-cd backend
-npm install
+# Install backend dependencies
+cd backend && npm install
 
-# Contracts (Foundry)
-cd ..
+# Install Foundry libraries
 forge install
-```
 
-### 2. Configure environment
+# Copy and fill env
+cp .env.example .env
 
-```bash
-# Backend .env
-cp backend/.env.example backend/.env
-```
+# Run backend
+cd backend && npm run dev
+# → http://localhost:3010
 
-The contracts are **already deployed**. Use these addresses in `backend/.env`:
-
-```env
-PORT=3010
-BASE_RPC_URL=https://mainnet.base.org
-EXECUTOR_ADDRESS=0x79D671250f75631ca199d0Fa22b0071052214172
-AERODROME_ADAPTER_ADDRESS=0xf919A01510591f38407AA4BBE5711646DB6819e3
-DCA_VAULT_ADDRESS=0x748bC7b2c12F5c97F72d19d599118A7672cAc45B
-```
-
-### 3. Run the backend
-
-**Via Docker (recommended):**
-```bash
-docker compose up -d --build
-# Container panorama-execution-layer → port 3010
-```
-
-**Or locally:**
-```bash
-cd backend
-npm run dev
-# execution-service running on port 3010
-```
-
-### 4. Run the frontend
-
-```bash
-cd frontend
-python3 -m http.server 5173
-# Open http://localhost:5173
-```
-
-### 5. Run tests
-
-```bash
-# Unit tests — PanoramaExecutor + DCAVault (no RPC needed)
-forge test -vv --no-match-path "test/fork/*"
-
-# Fork tests (against Base mainnet)
-BASE_RPC_URL=https://mainnet.base.org forge test --match-path "test/fork/*" -vvv
+# Health check
+curl http://localhost:3010/health
 ```
 
 ---
 
-## API Endpoints
-
-### Liquid Staking (`/staking`)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/staking/pools` | List staking pools with on-chain data |
-| `GET` | `/staking/position/:userAddress` | Get user positions and earned rewards |
-| `POST` | `/staking/prepare-enter` | Bundle: approve → addLiquidity → stake |
-| `POST` | `/staking/prepare-exit` | Bundle: unstake → approve → removeLiquidity |
-| `POST` | `/staking/prepare-claim` | Single tx: claim AERO rewards |
-
-### Swap (`/swap`)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/swap/pairs` | List available pairs with on-chain reserves |
-| `POST` | `/swap/quote` | Get quote: amountOut, amountOutMin, exchangeRate |
-| `POST` | `/swap/prepare` | Bundle: approve (if needed) → executeSwap |
-
-### DCA (`/dca`)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/dca/prepare-create` | Bundle: approve → createOrder on DCAVault |
-| `POST` | `/dca/prepare-cancel` | Bundle: cancel → withdraw remaining balance |
-| `GET` | `/dca/orders/:userAddress` | List all DCA orders for a user |
-| `GET` | `/dca/order/:orderId` | Get single order with on-chain state |
-| `GET` | `/dca/executable?upTo=100` | **Keeper endpoint** — orders ready to execute now |
-
-### Core Execution (`/execution`)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/execution/prepare-swap` | Low-level single swap tx (no allowance check) |
-| `POST` | `/execution/prepare-approve` | Prepare ERC-20 approval |
-| `POST` | `/execution/check-allowance` | Check token allowance |
-| `GET` | `/execution/pools` | List Aerodrome pools |
-| `POST` | `/execution/quote` | Get swap quote |
-
-### Example: Enter Staking Position
+## Tests
 
 ```bash
-curl -X POST http://localhost:3010/staking/prepare-enter \
-  -H "Content-Type: application/json" \
-  -d '{
-    "userAddress": "0xYourAddress",
-    "poolId": "weth-usdc-volatile",
-    "amountA": "10000000000000000",
-    "amountB": "10000000",
-    "slippageBps": 100,
-    "deadlineMinutes": 20
-  }'
+# Unit tests — no RPC needed (54 tests: 52 pass, 2 skipped)
+forge test --match-path "test/avax/**" -vv
+
+# Fork tests — requires AVAX_RPC_URL
+AVAX_RPC_URL=https://api.avax.network/ext/bc/C/rpc \
+  forge test --match-path "test/avax/fork/**" -vvv
+
+# Base unit tests
+forge test --no-match-path "test/avax/**" --no-match-path "test/fork/**" -vv
 ```
 
-Response returns a `TransactionBundle` with ordered steps:
+**Test results (Avalanche):**
 
-```json
-{
-  "bundle": {
-    "steps": [
-      { "to": "0x...", "data": "0x...", "value": "0", "description": "Approve WETH to Executor" },
-      { "to": "0x...", "data": "0x...", "value": "0", "description": "Approve USDC to Executor" },
-      { "to": "0x...", "data": "0x...", "value": "0", "description": "Add liquidity to WETH/USDC Volatile" },
-      { "to": "0x...", "data": "0x...", "value": "0", "description": "Approve LP token to Executor" },
-      { "to": "0x...", "data": "0x...", "value": "0", "description": "Stake LP in gauge" }
-    ],
-    "totalSteps": 5,
-    "summary": "Enter staking position: WETH/USDC Volatile"
-  },
-  "metadata": {
-    "poolAddress": "0xcDAC0d6c6C59727a65F871236188350531885C43",
-    "gaugeAddress": "0x519BBD1Dd8C6A94C46080E24f316c14Ee758C025"
-  }
-}
-```
-
-The frontend signs and submits each step sequentially via MetaMask.
-
----
-
-## Creating a New Service Module
-
-Follow the `liquid-staking` module as reference. Each module lives in `backend/src/modules/<module-name>/`.
-
-### Step 1: Create module folder structure
-
-```
-backend/src/modules/your-service/
-├── config/
-│   └── your-config.ts          # Pool/market/strategy definitions
-├── usecases/
-│   ├── prepare-enter.usecase.ts
-│   ├── prepare-exit.usecase.ts
-│   └── get-data.usecase.ts
-├── controllers/
-│   └── your-service.controller.ts
-└── routes/
-    └── your-service.routes.ts
-```
-
-### Step 2: Implement usecases
-
-Each usecase returns a `PreparedTransaction` or `TransactionBundle`:
-
-```typescript
-import { ethers } from "ethers";
-import { getChainConfig } from "../../../config/chains";
-import { PANORAMA_EXECUTOR_ABI } from "../../../utils/abi";
-import { encodeProtocolId, getDeadline } from "../../../utils/encoding";
-import { PreparedTransaction, TransactionBundle } from "../../../types/transaction";
-
-export async function executeYourStrategy(req: YourRequest): Promise<{ bundle: TransactionBundle }> {
-  const chain = getChainConfig("base");
-  const executorAddress = chain.contracts.panoramaExecutor;
-  const executorIface = new ethers.Interface(PANORAMA_EXECUTOR_ABI);
-  const protocolId = encodeProtocolId("aerodrome"); // or your protocol
-  const deadline = getDeadline(20);
-
-  const steps: PreparedTransaction[] = [];
-
-  // Add approve steps if needed (check allowance first)
-  // ...
-
-  // Add the main operation
-  steps.push({
-    to: executorAddress,
-    data: executorIface.encodeFunctionData("executeSwap", [
-      protocolId, tokenIn, tokenOut, amountIn, amountOutMin, extraData, deadline,
-    ]),
-    value: "0",
-    chainId: chain.chainId,
-    description: "Execute swap via PanoramaExecutor",
-  });
-
-  return {
-    bundle: {
-      steps,
-      totalSteps: steps.length,
-      summary: "Your strategy description",
-    },
-  };
-}
-```
-
-### Step 3: Create controller
-
-```typescript
-import { Request, Response } from "express";
-import { executeYourStrategy } from "../usecases/prepare-enter.usecase";
-
-export async function prepareEnter(req: Request, res: Response) {
-  try {
-    const result = await executeYourStrategy(req.body);
-    return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-}
-```
-
-### Step 4: Create routes
-
-```typescript
-import { Router } from "express";
-import { prepareEnter } from "../controllers/your-service.controller";
-
-export const yourServiceRoutes = Router();
-yourServiceRoutes.post("/prepare-enter", prepareEnter);
-```
-
-### Step 5: Register in `backend/src/index.ts`
-
-```typescript
-import { yourServiceRoutes } from "./modules/your-service/routes/your-service.routes";
-app.use("/your-service", yourServiceRoutes);
-```
-
-### Step 6: New protocol? Deploy a new adapter
-
-If your service uses a protocol **other than Aerodrome**, you need a new adapter:
-
-1. Create `contracts/adapters/YourAdapter.sol` implementing `IProtocolAdapter`
-2. Deploy: `forge script script/DeployYourAdapter.s.sol --rpc-url $BASE_RPC_URL --broadcast`
-3. Register: `executor.registerAdapter(keccak256("your-protocol"), adapterAddress)`
-4. Add the adapter address to `backend/src/config/protocols.ts`
-
-If your service uses **Aerodrome** (swap, liquidity, staking), the existing `AerodromeAdapter` already handles it — **no new deployment needed**.
-
-### IProtocolAdapter Interface
-
-All adapters must implement these functions:
-
-```solidity
-interface IProtocolAdapter {
-    function swap(address tokenIn, address tokenOut, uint256 amountIn,
-        uint256 amountOutMin, address recipient, bytes calldata extraData)
-        external payable returns (uint256 amountOut);
-
-    function addLiquidity(address tokenA, address tokenB, bool stable,
-        uint256 amountADesired, uint256 amountBDesired, uint256 amountAMin,
-        uint256 amountBMin, address recipient, bytes calldata extraData)
-        external payable returns (uint256 liquidity);
-
-    function removeLiquidity(address tokenA, address tokenB, bool stable,
-        uint256 liquidity, uint256 amountAMin, uint256 amountBMin,
-        address recipient, bytes calldata extraData)
-        external payable returns (uint256 amountA, uint256 amountB);
-
-    function stake(address lpToken, uint256 amount, bytes calldata extraData)
-        external returns (bool);
-
-    function unstake(address lpToken, uint256 amount, bytes calldata extraData)
-        external returns (bool);
-
-    function claimRewards(address lpToken, address recipient, bytes calldata extraData)
-        external returns (uint256 rewardAmount);
-}
-```
-
----
-
-## Shared Utilities
-
-Reuse these across all modules:
-
-| Utility | Import | Description |
+| Suite | Tests | Result |
 |---|---|---|
-| `encodeProtocolId(name)` | `utils/encoding.ts` | `keccak256("aerodrome")` → bytes32 |
-| `getDeadline(minutes)` | `utils/encoding.ts` | Current timestamp + minutes |
-| `applySlippage(amount, bps)` | `utils/encoding.ts` | Slippage protection (100 bps = 1%) |
-| `getContract(addr, abi, chain)` | `providers/chain.provider.ts` | ethers.js Contract instance |
-| `getPoolAddress(tokenA, tokenB, stable)` | `providers/aerodrome.provider.ts` | Resolve pool on-chain |
-| `getGaugeForPool(pool)` | `providers/gauge.provider.ts` | Resolve gauge via Voter |
-| `PreparedTransaction` | `types/transaction.ts` | `{ to, data, value, chainId, description }` |
-| `TransactionBundle` | `types/transaction.ts` | `{ steps[], totalSteps, summary }` |
+| `PanoramaSwap.t.sol` | 17 | all pass |
+| `PanoramaLend.t.sol` | 29 | all pass |
+| `PanoramaSwapFork.t.sol` | 4 | all pass (against Avalanche mainnet) |
+| `PanoramaLendFork.t.sol` | 4 | 2 pass, 2 skipped* |
+
+*qiUSDC market has mint paused by Benqi governance. Logic is identical to qiAVAX (proven passing).
 
 ---
 
-## Supported Chains
+## Supported Tokens (Avalanche)
 
-| Chain | Status | Primary Protocol |
-|-------|--------|-----------------|
-| Base | **Active** | Aerodrome Finance |
-| Avalanche | Planned | TBD |
-| Arbitrum | Planned | TBD |
+| Symbol | Address | Decimals |
+|---|---|---|
+| WAVAX | `0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7` | 18 |
+| USDC | `0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E` | 6 |
+| USDC.e | `0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664` | 6 |
+| USDT | `0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7` | 6 |
+| WETH.e | `0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB` | 18 |
+| BTC.b | `0x152b9d0FdC40C096757F570A51E494bd4b943E50` | 8 |
 
----
+## Supported Swap Pairs (Avalanche)
 
-## Tech Stack
-
-| Layer | Technology |
+| Pair | ID |
 |---|---|
-| Smart Contracts | Solidity 0.8.20, Foundry |
-| Backend | Node.js, Express, ethers.js v6, TypeScript |
-| Frontend | Vanilla HTML/JS, ethers.js v6 |
-| Chain | Base Mainnet (Chain ID 8453) |
-| DEX | Aerodrome Finance (Router2, Voter, Gauges) |
+| AVAX → USDC | `avax-usdc` |
+| USDC → AVAX | `usdc-avax` |
+| AVAX → USDT | `avax-usdt` |
+| USDT → AVAX | `usdt-avax` |
+| USDC → USDT | `usdc-usdt` |
+| USDT → USDC | `usdt-usdc` |
+| AVAX → WETH | `avax-weth` |
+| WETH → AVAX | `weth-avax` |
+
+## Supported Lending Markets (Avalanche)
+
+| Market | qToken | Underlying | ID |
+|---|---|---|---|
+| AVAX | `qiAVAX` | Native AVAX | `avax` |
+| USDC.e | `qiUSDC` | USDC.e | `usdc.e` |
+| USDT | `qiUSDT` | USDT | `usdt` |
+| WETH.e | `qiETH` | WETH.e | `weth` |

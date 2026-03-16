@@ -2,9 +2,9 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import {PanoramaExecutor} from "../../contracts/core/PanoramaExecutor.sol";
-import {AerodromeAdapter} from "../../contracts/adapters/AerodromeAdapter.sol";
-import {IAerodromeRouter} from "../../contracts/interfaces/IAerodromeRouter.sol";
+import {PanoramaExecutor} from "../../contracts/aerodrome/core/PanoramaExecutor.sol";
+import {AerodromeAdapter} from "../../contracts/aerodrome/adapters/AerodromeAdapter.sol";
+import {IAerodromeRouter} from "../../contracts/aerodrome/interfaces/IAerodromeRouter.sol";
 
 /**
  * @title AerodromeAdapterForkTest

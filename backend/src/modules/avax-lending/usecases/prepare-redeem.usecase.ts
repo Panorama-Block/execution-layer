@@ -1,8 +1,8 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../../../config/chains";
 import { avaxService } from "../../../shared/services/avax.service";
-import { PANORAMA_LEND_ABI } from "../../../utils/abi";
-import { BundleBuilder } from "../../../shared/bundle-builder";
+import { encodeProtocolId, getDeadline } from "../../../utils/encoding";
+import { BundleBuilder, BENQI_SELECTORS } from "../../../shared/bundle-builder";
 import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
 import { getMarketByQToken } from "../config/avax-lending-markets";
@@ -25,12 +25,10 @@ export interface PrepareRedeemResponse {
   };
 }
 
-const LEND_IFACE = new ethers.Interface(PANORAMA_LEND_ABI);
-
 export async function executePrepareRedeem(req: PrepareRedeemRequest): Promise<PrepareRedeemResponse> {
-  const chain    = getChainConfig("avalanche");
-  const lendAddr = chain.contracts.panoramaLend;
-  if (!lendAddr) throw new AppError("INTERNAL_ERROR", "PanoramaLend not deployed yet");
+  const chain        = getChainConfig("avalanche");
+  const executorAddr = chain.contracts.panoramaExecutor;
+  if (!executorAddr) throw new AppError("INTERNAL_ERROR", "PanoramaExecutor not deployed on Avalanche");
 
   const market = getMarketByQToken(req.qTokenAddress);
   if (!market) throw new AppError("POOL_NOT_FOUND", `Market not found for qToken: ${req.qTokenAddress}`);
@@ -38,34 +36,54 @@ export async function executePrepareRedeem(req: PrepareRedeemRequest): Promise<P
   const qTokenAmount = BigInt(req.qTokenAmount);
   if (qTokenAmount <= 0n) throw new AppError("INVALID_AMOUNT", "qTokenAmount must be positive");
 
-  const builder = new BundleBuilder(chain.chainId);
+  const protocolId = encodeProtocolId("benqi");
+  const builder    = new BundleBuilder(chain.chainId);
+  const deadline   = getDeadline(20);
 
-  // Always need to approve qToken → PanoramaLend so contract can pull them
-  const allowance = await avaxService.checkAllowance(req.qTokenAddress, req.userAddress, lendAddr, qTokenAmount);
+  // Approve qToken → executor so it can pull qTokens to the proxy
+  const allowance = await avaxService.checkAllowance(req.qTokenAddress, req.userAddress, executorAddr, qTokenAmount);
   builder.addApproveIfNeeded(
     req.qTokenAddress,
-    lendAddr,
+    executorAddr,
     allowance,
     qTokenAmount,
-    `Approve ${market.qTokenSymbol} for PanoramaLend`
+    `Approve ${market.qTokenSymbol} for PanoramaExecutor`
   );
 
   if (market.isNative) {
-    builder["steps"].push({
-      to:          lendAddr,
-      data:        LEND_IFACE.encodeFunctionData("redeemAVAX", [qTokenAmount]),
-      value:       "0",
-      chainId:     chain.chainId,
-      description: `Redeem ${market.qTokenSymbol} for AVAX via PanoramaLend`,
-    });
+    // redeemAVAX(uint256 qTokenAmount, address recipient)
+    const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["uint256", "address"],
+      [qTokenAmount, req.userAddress]
+    );
+
+    builder.addExecute(
+      protocolId,
+      BENQI_SELECTORS.REDEEM_AVAX,
+      [{ token: req.qTokenAddress, amount: qTokenAmount }],
+      deadline,
+      adapterData,
+      0n,
+      executorAddr,
+      `Redeem ${market.qTokenSymbol} for AVAX via Benqi`
+    );
   } else {
-    builder["steps"].push({
-      to:          lendAddr,
-      data:        LEND_IFACE.encodeFunctionData("redeem", [req.qTokenAddress, qTokenAmount]),
-      value:       "0",
-      chainId:     chain.chainId,
-      description: `Redeem ${market.qTokenSymbol} for ${market.underlyingSymbol} via PanoramaLend`,
-    });
+    // redeem(address qToken, uint256 qTokenAmount, address recipient)
+    const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["address", "uint256", "address"],
+      [req.qTokenAddress, qTokenAmount, req.userAddress]
+    );
+
+    builder.addExecute(
+      protocolId,
+      BENQI_SELECTORS.REDEEM,
+      [{ token: req.qTokenAddress, amount: qTokenAmount }],
+      deadline,
+      adapterData,
+      0n,
+      executorAddr,
+      `Redeem ${market.qTokenSymbol} for ${market.underlyingSymbol} via Benqi`
+    );
   }
 
   return {

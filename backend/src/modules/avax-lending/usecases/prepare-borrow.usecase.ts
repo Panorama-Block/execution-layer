@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../../../config/chains";
-import { PANORAMA_LEND_ABI } from "../../../utils/abi";
-import { BundleBuilder } from "../../../shared/bundle-builder";
+import { encodeProtocolId, getDeadline } from "../../../utils/encoding";
+import { BundleBuilder, BENQI_SELECTORS } from "../../../shared/bundle-builder";
 import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
 import { getMarketByQToken } from "../config/avax-lending-markets";
@@ -24,12 +24,10 @@ export interface PrepareBorrowResponse {
   };
 }
 
-const LEND_IFACE = new ethers.Interface(PANORAMA_LEND_ABI);
-
 export async function executePrepareBorrow(req: PrepareBorrowRequest): Promise<PrepareBorrowResponse> {
-  const chain    = getChainConfig("avalanche");
-  const lendAddr = chain.contracts.panoramaLend;
-  if (!lendAddr) throw new AppError("INTERNAL_ERROR", "PanoramaLend not deployed yet");
+  const chain        = getChainConfig("avalanche");
+  const executorAddr = chain.contracts.panoramaExecutor;
+  if (!executorAddr) throw new AppError("INTERNAL_ERROR", "PanoramaExecutor not deployed on Avalanche");
 
   const market = getMarketByQToken(req.qTokenAddress);
   if (!market) throw new AppError("POOL_NOT_FOUND", `Market not found for qToken: ${req.qTokenAddress}`);
@@ -37,25 +35,45 @@ export async function executePrepareBorrow(req: PrepareBorrowRequest): Promise<P
   const amount = BigInt(req.amount);
   if (amount <= 0n) throw new AppError("INVALID_AMOUNT", "amount must be positive");
 
-  const builder = new BundleBuilder(chain.chainId);
+  const protocolId = encodeProtocolId("benqi");
+  const builder    = new BundleBuilder(chain.chainId);
+  const deadline   = getDeadline(20);
 
-  // Borrow requires no token approval — contract sends tokens/AVAX to caller
+  // Borrow requires no token transfer from user — the adapter borrows and sends to recipient
   if (market.isNative) {
-    builder["steps"].push({
-      to:          lendAddr,
-      data:        LEND_IFACE.encodeFunctionData("borrowAVAX", [amount]),
-      value:       "0",
-      chainId:     chain.chainId,
-      description: `Borrow ${ethers.formatEther(amount)} AVAX from Benqi via PanoramaLend`,
-    });
+    // borrowAVAX(uint256 amount, address recipient)
+    const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["uint256", "address"],
+      [amount, req.userAddress]
+    );
+
+    builder.addExecute(
+      protocolId,
+      BENQI_SELECTORS.BORROW_AVAX,
+      [],
+      deadline,
+      adapterData,
+      0n,
+      executorAddr,
+      `Borrow ${ethers.formatEther(amount)} AVAX from Benqi`
+    );
   } else {
-    builder["steps"].push({
-      to:          lendAddr,
-      data:        LEND_IFACE.encodeFunctionData("borrow", [req.qTokenAddress, amount]),
-      value:       "0",
-      chainId:     chain.chainId,
-      description: `Borrow ${market.underlyingSymbol} from Benqi via PanoramaLend`,
-    });
+    // borrow(address qToken, uint256 amount, address recipient)
+    const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["address", "uint256", "address"],
+      [req.qTokenAddress, amount, req.userAddress]
+    );
+
+    builder.addExecute(
+      protocolId,
+      BENQI_SELECTORS.BORROW,
+      [],
+      deadline,
+      adapterData,
+      0n,
+      executorAddr,
+      `Borrow ${market.underlyingSymbol} from Benqi`
+    );
   }
 
   return {

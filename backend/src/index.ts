@@ -26,7 +26,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 app.use(helmet());
 
-// Request logger — mostra todas as requisições no terminal para facilitar debug local
+// Request logger — logs every incoming request for local debugging
 app.use((req, _res, next) => {
   console.log(`[execution-layer] ← ${req.method} ${req.path}`);
   next();

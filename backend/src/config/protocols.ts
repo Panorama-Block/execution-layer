@@ -2,12 +2,7 @@ export interface ProtocolConfig {
   protocolId: string;
   name: string;
   chain: string;
-  contracts: {
-    router: string;
-    factory: string;
-    voter: string;
-  };
-  adapterAddress: string;
+  contracts: Record<string, string>;
 }
 
 export const BASE_TOKENS: Record<string, { address: string; decimals: number }> = {
@@ -22,12 +17,19 @@ export const BASE_TOKENS: Record<string, { address: string; decimals: number }> 
   DAI:    { address: "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb", decimals: 18 },
 };
 
+export const AVAX_TOKENS: Record<string, { address: string; decimals: number }> = {
+  AVAX:   { address: "0x0000000000000000000000000000000000000000", decimals: 18 },
+  WAVAX:  { address: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", decimals: 18 },
+  USDC:   { address: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", decimals: 6  },
+  USDCe:  { address: "0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664", decimals: 6  },
+  USDT:   { address: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7", decimals: 6  },
+  USDTe:  { address: "0xc7198437980c041c805A1EDcbA50c1Ce5db95118", decimals: 6  },
+  WETHe:  { address: "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB", decimals: 18 },
+  sAVAX:  { address: "0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE", decimals: 18 },
+};
+
 // ── Protocol Registry ─────────────────────────────────────────────────────────
 
-/**
- * Registry of all supported protocols.
- * To add a new protocol: call registerProtocol() at startup — no changes to this file.
- */
 const PROTOCOL_REGISTRY: Record<string, ProtocolConfig> = {
   aerodrome: {
     protocolId: "aerodrome",
@@ -38,34 +40,49 @@ const PROTOCOL_REGISTRY: Record<string, ProtocolConfig> = {
       factory: "0x420DD381b31aEf6683db6B902084cB0FFECe40Da",
       voter:   "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5",
     },
-    adapterAddress: process.env.AERODROME_ADAPTER_ADDRESS || "",
+  },
+  traderjoe: {
+    protocolId: "traderjoe",
+    name: "Trader Joe V1",
+    chain: "avalanche",
+    contracts: {
+      router: "0x60aE616a2155Ee3d9A68541Ba4544862310933d4",
+    },
+  },
+  benqi: {
+    protocolId: "benqi",
+    name: "Benqi Finance",
+    chain: "avalanche",
+    contracts: {
+      comptroller: "0x486Af39519B4Dc9a7fCcd318217352830E8AD9b4",
+      qiAVAX:      "0x5C0401e81Bc07Ca70fAD469b451682c0d747Ef1c",
+    },
+  },
+  savax: {
+    protocolId: "savax",
+    name: "BENQI sAVAX",
+    chain: "avalanche",
+    contracts: {
+      sAvax: "0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE",
+    },
   },
 };
 
-/**
- * Register a new protocol at runtime.
- * Call this during module initialisation — not needed for protocols already seeded above.
- *
- * @example
- *   registerProtocol("velodrome", { protocolId: "velodrome", ... });
- */
 export function registerProtocol(protocolId: string, config: ProtocolConfig): void {
   PROTOCOL_REGISTRY[protocolId] = config;
 }
 
-/** Get config for a registered protocol. Throws for unknown protocols. */
 export function getProtocolConfig(protocolId: string): ProtocolConfig {
   const config = PROTOCOL_REGISTRY[protocolId];
   if (!config) throw new Error(`Unsupported protocol: ${protocolId}`);
   return config;
 }
 
-/** List all registered protocol IDs. */
 export function listProtocols(): string[] {
   return Object.keys(PROTOCOL_REGISTRY);
 }
 
-// ── User Adapter Address (EIP-1167 deterministic clone) ───────────────────────
+// ── User Adapter Address (deterministic clone prediction) ───────────────────
 
 const adapterCache      = new Map<string, { value: string; expiresAt: number }>();
 const adapterInFlight   = new Map<string, Promise<string>>();
@@ -94,12 +111,11 @@ function isAdapterMissingError(err: unknown): boolean {
 }
 
 /**
- * Get the predicted per-user adapter clone address for a given protocol.
- * Uses PanoramaExecutor.predictUserAdapter() — deterministic, no tx needed.
- * Results are cached since the prediction is stable (same input → same output).
+ * Get the predicted per-user adapter address for a given protocol.
+ * Uses PanoramaExecutorV2.predictUserAdapter() — deterministic, no tx needed.
  */
-export async function getUserAdapterAddress(userAddress: string, protocolId: string): Promise<string> {
-  const cacheKey = `${protocolId}:${userAddress.toLowerCase()}`;
+export async function getUserAdapterAddress(userAddress: string, protocolId: string, chain = "base"): Promise<string> {
+  const cacheKey = `${chain}:${protocolId}:${userAddress.toLowerCase()}`;
   const cached   = adapterCache.get(cacheKey);
   if (cached && Date.now() < cached.expiresAt) return cached.value;
   const inFlight = adapterInFlight.get(cacheKey);
@@ -111,9 +127,9 @@ export async function getUserAdapterAddress(userAddress: string, protocolId: str
     const { getChainConfig }        = await import("./chains");
     const { encodeProtocolId }      = await import("../utils/encoding");
 
-    const chain    = getChainConfig("base");
-    const executor = getContract(chain.contracts.panoramaExecutor, PANORAMA_EXECUTOR_ABI, "base");
-    const protoId  = encodeProtocolId(protocolId);
+    const chainConfig = getChainConfig(chain);
+    const executor    = getContract(chainConfig.contracts.panoramaExecutor, PANORAMA_EXECUTOR_ABI, chain);
+    const protoId     = encodeProtocolId(protocolId);
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {

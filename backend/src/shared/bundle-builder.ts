@@ -37,7 +37,7 @@ export class BundleBuilder {
 
   /**
    * Appends an ERC-20 approve step only if currentAllowance < requiredAmount.
-   * Uses MaxUint256 to minimise future approval transactions.
+   * Approves the exact amount to avoid Blockaid warnings for unlimited approvals.
    */
   addApproveIfNeeded(
     token: string,
@@ -50,7 +50,7 @@ export class BundleBuilder {
       const iface = new ethers.Interface(ERC20_APPROVE_ABI);
       this.steps.push({
         to: token,
-        data: iface.encodeFunctionData("approve", [spender, ethers.MaxUint256]),
+        data: iface.encodeFunctionData("approve", [spender, requiredAmount]),
         value: "0",
         chainId: this.chainId,
         description,

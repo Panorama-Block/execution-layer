@@ -7,6 +7,22 @@ import { getContract } from "../../../providers/chain.provider";
 import { STAKED_AVAX_ABI } from "../../../utils/abi";
 
 const S_AVAX_ADDRESS = "0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE";
+const BENQI_APR_URL = "https://api.benqi.fi/liquidstaking/apr";
+
+// Simple in-memory cache: avoid hitting Benqi API on every position request
+let aprCache: { value: number; expiresAt: number } | null = null;
+
+async function fetchSAvaxApr(): Promise<number | null> {
+  if (aprCache && Date.now() < aprCache.expiresAt) return aprCache.value;
+  try {
+    const res = await fetch(BENQI_APR_URL);
+    const json = await res.json() as { apr: number };
+    aprCache = { value: json.apr * 100, expiresAt: Date.now() + 60 * 60 * 1000 }; // cache 1h
+    return aprCache.value;
+  } catch {
+    return aprCache?.value ?? null; // return stale if available
+  }
+}
 
 export const prepareStake = asyncHandler(async (req: Request, res: Response) => {
   const result = await executePrepareStake({
@@ -39,14 +55,16 @@ export const getPosition = asyncHandler(async (req: Request, res: Response) => {
   const balanceAbi = ["function balanceOf(address) external view returns (uint256)"];
   const sAvaxToken = getContract(S_AVAX_ADDRESS, balanceAbi, "avalanche");
 
-  const [exchangeRate, sAvaxBalance] = await Promise.all([
+  const [exchangeRate, sAvaxBalance, apy] = await Promise.all([
     sAvaxContract.exchangeRateByRoundingDown() as Promise<bigint>,
     sAvaxToken.balanceOf(userAddress) as Promise<bigint>,
+    fetchSAvaxApr(),
   ]);
 
   res.json({
     userAddress,
     sAvaxBalance: sAvaxBalance.toString(),
     exchangeRate: exchangeRate.toString(),
+    apy,
   });
 });

@@ -38,11 +38,16 @@ export const getPosition = asyncHandler(async (req: Request, res: Response) => {
   const contractAddr = chain.contracts.panoramaLiquidStaking;
   if (!contractAddr) throw new AppError("INTERNAL_ERROR", "PanoramaLiquidStaking not deployed yet");
 
+  // BENQI sAVAX ERC20 — 0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE
+  // stake() transfers sAVAX directly to msg.sender, so balance lives on this token
+  const SAVAX_TOKEN = "0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE";
   const contract = getContract(contractAddr, PANORAMA_LIQUID_STAKING_ABI, "avalanche");
+  const sAvaxToken = getContract(SAVAX_TOKEN, ["function balanceOf(address) external view returns (uint256)"], "avalanche");
 
-  const [unlockCount, exchangeRate] = await Promise.all([
+  const [unlockCount, exchangeRate, sAvaxBalance] = await Promise.all([
     contract.getUnlockRequestCount(userAddress) as Promise<bigint>,
     contract.exchangeRate() as Promise<bigint>,
+    sAvaxToken.balanceOf(userAddress) as Promise<bigint>,
   ]);
 
   const count = Number(unlockCount);
@@ -60,6 +65,7 @@ export const getPosition = asyncHandler(async (req: Request, res: Response) => {
 
   res.json({
     userAddress,
+    sAvaxBalance: sAvaxBalance.toString(),
     exchangeRate: exchangeRate.toString(),
     pendingUnlocks: unlockRequests,
   });

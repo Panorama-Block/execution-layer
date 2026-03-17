@@ -2,8 +2,8 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import {DCAVault} from "../contracts/core/DCAVault.sol";
-import {IPanoramaExecutor} from "../contracts/interfaces/IPanoramaExecutor.sol";
+import {DCAVault} from "../contracts/aerodrome/core/DCAVault.sol";
+import {IPanoramaExecutor} from "../contracts/aerodrome/interfaces/IPanoramaExecutor.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 // ---------------------------------------------------------------------------

@@ -2,10 +2,10 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import {PanoramaExecutor} from "../../contracts/core/PanoramaExecutor.sol";
-import {AerodromeAdapter} from "../../contracts/adapters/AerodromeAdapter.sol";
-import {IERC20} from "../../contracts/interfaces/IERC20.sol";
-import {IAerodromeGauge, IAerodromeVoter} from "../../contracts/interfaces/IAerodromeGauge.sol";
+import {PanoramaExecutor} from "../../contracts/aerodrome/core/PanoramaExecutor.sol";
+import {AerodromeAdapter} from "../../contracts/aerodrome/adapters/AerodromeAdapter.sol";
+import {IERC20} from "../../contracts/aerodrome/interfaces/IERC20.sol";
+import {IAerodromeGauge, IAerodromeVoter} from "../../contracts/aerodrome/interfaces/IAerodromeGauge.sol";
 
 interface IAerodromeFactory {
     function getPool(address tokenA, address tokenB, bool stable) external view returns (address);

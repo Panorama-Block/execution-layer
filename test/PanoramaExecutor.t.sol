@@ -2,8 +2,8 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import {PanoramaExecutor} from "../contracts/core/PanoramaExecutor.sol";
-import {AerodromeAdapter} from "../contracts/adapters/AerodromeAdapter.sol";
+import {PanoramaExecutor} from "../contracts/aerodrome/core/PanoramaExecutor.sol";
+import {AerodromeAdapter} from "../contracts/aerodrome/adapters/AerodromeAdapter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockRouter} from "./mocks/MockRouter.sol";
 

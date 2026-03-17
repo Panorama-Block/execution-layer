@@ -106,7 +106,9 @@ export const BENQI_TOKEN_ABI = [
   "function repayBorrow(uint256 repayAmount) external returns (uint256)",
   "function underlying() external view returns (address)",
   "function balanceOf(address owner) external view returns (uint256)",
+  "function borrowBalanceStored(address account) external view returns (uint256)",
   "function exchangeRateCurrent() external returns (uint256)",
+  "function exchangeRateStored() external view returns (uint256)",
   "function supplyRatePerTimestamp() external view returns (uint256)",
   "function borrowRatePerTimestamp() external view returns (uint256)",
 ] as const;

@@ -97,13 +97,13 @@ describe("BundleBuilder", () => {
       expect(step.description).toBe("Approve WETH");
     });
 
-    it("approve step uses MaxUint256 amount", () => {
+    it("approve step uses exact required amount (no unlimited approval)", () => {
       builder.addApproveIfNeeded(TOKEN_IN, EXECUTOR, 0n, 1n, "Approve");
       const step  = builder.build("").steps[0];
       const iface = new ethers.Interface(["function approve(address spender, uint256 amount) external returns (bool)"]);
       const decoded = iface.decodeFunctionData("approve", step.data);
       expect(decoded[0]).toBe(EXECUTOR);
-      expect(decoded[1]).toBe(ethers.MaxUint256);
+      expect(decoded[1]).toBe(1n);
     });
 
     it("returns builder instance for chaining", () => {

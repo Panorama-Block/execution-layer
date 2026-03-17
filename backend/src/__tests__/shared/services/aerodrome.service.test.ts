@@ -21,7 +21,6 @@ vi.mock("../../../config/protocols", async () => {
         factory: "0xFactory",
         voter: "0xVoter",
       },
-      adapterAddress: "",
     })),
     getUserAdapterAddress: vi.fn(),
   };

@@ -1,10 +1,12 @@
 export const PANORAMA_EXECUTOR_ABI = [
   "function execute(bytes32 protocolId, bytes4 selector, (address token, uint256 amount)[] transfers, uint256 deadline, bytes data) external payable returns (bytes result)",
   "function executeSwapFor(address user, bytes32 protocolId, bytes4 selector, (address token, uint256 amount)[] transfers, uint256 deadline, bytes data) external payable returns (bytes result)",
-  "function adapterImplementations(bytes32) external view returns (address)",
   "function getUserAdapter(bytes32 protocolId, address user) external view returns (address)",
   "function predictUserAdapter(bytes32 protocolId, address user) external view returns (address)",
   "function userAdapters(bytes32, address) external view returns (address)",
+  "function protocolBeacons(bytes32) external view returns (address)",
+  "function protocolInitArgs(bytes32) external view returns (bytes)",
+  "function registerBeacon(bytes32 protocolId, address beacon, bytes initArgs) external",
 ] as const;
 
 export const AERODROME_ROUTER_ABI = [
@@ -62,43 +64,6 @@ export const TRADER_JOE_ROUTER_ABI = [
   "function WAVAX() external pure returns (address)",
 ] as const;
 
-export const PANORAMA_SWAP_ABI = [
-  "function swapTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, uint256 deadline) external returns (uint256 amountOut)",
-  "function swapAVAXForTokens(uint256 amountOutMin, address[] path, uint256 deadline) external payable returns (uint256 amountOut)",
-  "function swapTokensForAVAX(uint256 amountIn, uint256 amountOutMin, address[] path, uint256 deadline) external returns (uint256 amountOut)",
-  "function getAmountsOut(uint256 amountIn, address[] path) external view returns (uint256[] amounts)",
-  "function router() external view returns (address)",
-  "function WAVAX() external view returns (address)",
-] as const;
-
-export const PANORAMA_LIQUID_STAKING_ABI = [
-  "function stake() external payable returns (uint256 sAvaxReceived)",
-  "function requestUnlock(uint256 sAvaxAmount) external returns (uint256 userUnlockIndex)",
-  "function redeem(uint256 userUnlockIndex) external",
-  "function previewStake(uint256 avaxAmount) external view returns (uint256)",
-  "function previewRedeem(uint256 sAvaxAmount) external view returns (uint256)",
-  "function exchangeRate() external view returns (uint256)",
-  "function getUnlockRequestCount(address user) external view returns (uint256)",
-  "function getUnlockRequest(address user, uint256 userUnlockIndex) external view returns (tuple(uint256 shareAmount, uint256 unlockTime))",
-  "function sAvax() external view returns (address)",
-] as const;
-
-export const PANORAMA_LEND_ABI = [
-  // ERC20 operations
-  "function supply(address qToken, uint256 amount) external",
-  "function redeem(address qToken, uint256 qTokenAmount) external",
-  "function borrow(address qToken, uint256 amount) external",
-  "function repay(address qToken, uint256 amount) external",
-  // Native AVAX operations
-  "function supplyAVAX() external payable",
-  "function redeemAVAX(uint256 qTokenAmount) external",
-  "function borrowAVAX(uint256 amount) external",
-  "function repayAVAX() external payable",
-  // Views
-  "function comptroller() external view returns (address)",
-  "function qiAVAX() external view returns (address)",
-] as const;
-
 export const BENQI_TOKEN_ABI = [
   "function mint(uint256 mintAmount) external returns (uint256)",
   "function redeem(uint256 redeemTokens) external returns (uint256)",
@@ -111,6 +76,18 @@ export const BENQI_TOKEN_ABI = [
   "function exchangeRateStored() external view returns (uint256)",
   "function supplyRatePerTimestamp() external view returns (uint256)",
   "function borrowRatePerTimestamp() external view returns (uint256)",
+] as const;
+
+export const STAKED_AVAX_ABI = [
+  "function submit() external payable returns (uint256)",
+  "function requestUnlock(uint256 shareAmount) external returns (uint256)",
+  "function redeem(uint256 unlockIndex) external",
+  "function getSharesByPooledAvax(uint256 avaxAmount) external view returns (uint256)",
+  "function getPooledAvaxByShares(uint256 shareAmount) external view returns (uint256)",
+  "function exchangeRateByRoundingDown() external view returns (uint256)",
+  "function balanceOf(address owner) external view returns (uint256)",
+  "function approve(address spender, uint256 amount) external returns (bool)",
+  "function allowance(address owner, address spender) external view returns (uint256)",
 ] as const;
 
 export const DCA_VAULT_ABI = [

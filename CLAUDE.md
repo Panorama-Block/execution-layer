@@ -6,9 +6,9 @@ Guidelines for working with this codebase.
 
 Always respond in **Brazilian Portuguese (pt-BR)**.
 
-## Leitura obrigatória
+## Required reading
 
-Sempre ler o `README.md` na raiz do projeto antes de iniciar qualquer tarefa.
+Always read `README.md` at the project root before starting any task.
 
 ## Repository layout
 
@@ -26,48 +26,48 @@ execution-layer/
 ## Test commands
 
 ```bash
-# Solidity unit tests (sem RPC)
+# Solidity unit tests (no RPC needed)
 forge test -vv --no-match-path "test/fork/*"
 
-# Fork tests (precisa de BASE_RPC_URL)
+# Fork tests (requires BASE_RPC_URL)
 BASE_RPC_URL=https://mainnet.base.org forge test --match-path "test/fork/*" -vvv
 
 # Backend (Vitest)
 cd backend && npm test
 ```
 
-**Sempre rodar os dois suites após qualquer mudança.** Não fazer commit com testes falhando.
+**Always run both suites after any change.** Do not commit with failing tests.
 
-## Arquitetura central
+## Core architecture
 
 ### V2: BeaconProxy (upgradeable)
 
-O sistema usa **BeaconProxy** (OpenZeppelin) ao invés de EIP-1167:
-- Cada protocolo tem um `UpgradeableBeacon` que armazena o endereço da implementação
-- Cada usuário recebe um `BeaconProxy` que delega para o beacon
-- `beacon.upgradeTo(newImpl)` atualiza TODOS os usuários de uma vez
-- Adapters usam `Initializable` + `__gap[50]` para storage stability
+The system uses **BeaconProxy** (OpenZeppelin) instead of EIP-1167:
+- Each protocol has an `UpgradeableBeacon` that stores the implementation address
+- Each user gets a `BeaconProxy` that delegates to the beacon
+- `beacon.upgradeTo(newImpl)` upgrades ALL users at once
+- Adapters use `Initializable` + `__gap[50]` for storage stability
 
-### PanoramaExecutorV2 — entry point único (ambas as chains)
+### PanoramaExecutorV2 — single entry point (both chains)
 
 ```solidity
 function execute(
     bytes32 protocolId,
-    bytes4  action,              // bytes4(keccak256("nomeFuncao(tipos...)"))
+    bytes4  action,              // bytes4(keccak256("functionName(types...)"))
     Transfer[] calldata transfers,
     uint256 deadline,
     bytes calldata data
 ) external payable returns (bytes memory result)
 ```
 
-O executor **não conhece nenhuma ação específica**. Ele só:
-1. Cria/recupera o BeaconProxy do usuário para `protocolId`
-2. Puxa tokens do usuário para o proxy via `transfers`
-3. Faz `proxy.call(action ++ data)` — dispatch cego
+The executor **does not know any specific action**. It only:
+1. Creates/retrieves the user's BeaconProxy for `protocolId`
+2. Pulls tokens from the user to the proxy via `transfers`
+3. Calls `proxy.call(action ++ data)` — blind dispatch
 
-**Nunca adicionar lógica de ação no executor.** Toda lógica vai no adapter.
+**Never add action-specific logic to the executor.** All logic goes in the adapter.
 
-### Registro de protocolo
+### Protocol registration
 
 ```solidity
 // on-chain
@@ -79,29 +79,29 @@ executor.registerBeacon(keccak256("aerodrome"), beaconAddress, abi.encode(router
 registerProtocol("aerodrome", { protocolId: "aerodrome", chain: "base", ... });
 ```
 
-Zero mudanças no executor ou no BundleBuilder.
+Zero changes needed in the executor or BundleBuilder.
 
-### Inicialização de adapters
+### Adapter initialization
 
-Todos os adapters V2 usam a mesma assinatura:
+All V2 adapters use the same signature:
 
 ```solidity
 function initializeFull(address _executor, bytes calldata _initArgs) external initializer
 ```
 
-O executor armazena `protocolInitArgs` por protocolo e passa ao `initializeFull` na criação do proxy.
+The executor stores `protocolInitArgs` per protocol and passes them to `initializeFull` when creating the proxy.
 
-## ADAPTER_SELECTORS — selectors Solidity completos
+## ADAPTER_SELECTORS — full Solidity selectors
 
-Os selectors em `backend/src/shared/bundle-builder.ts` usam a **assinatura completa**:
+The selectors in `backend/src/shared/bundle-builder.ts` use the **full signature**:
 
 ```typescript
 ethers.id("swap(address,address,uint256,uint256,address,bool)").slice(0, 10)
 ```
 
-Não usar `ethers.id("swap")` — isso é keccak256 do nome sem tipos.
+Do not use `ethers.id("swap")` — that is keccak256 of the name without types.
 
-## BundleBuilder — único ponto de montagem de bundles
+## BundleBuilder — single bundle assembly point
 
 ```typescript
 new BundleBuilder(chainId)
@@ -110,11 +110,11 @@ new BundleBuilder(chainId)
   .build("summary")
 ```
 
-**Nunca construir `PreparedTransaction` manualmente fora do BundleBuilder.**
+**Never construct `PreparedTransaction` manually outside of BundleBuilder.**
 
-## Encoding de adapterData
+## adapterData encoding
 
-O `data` passado ao `execute()` deve ser **exatamente** o `abi.encode` dos parâmetros tipados da função do adapter, **sem o selector**:
+The `data` passed to `execute()` must be **exactly** the `abi.encode` of the adapter function's typed parameters, **without the selector**:
 
 ```typescript
 const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
@@ -123,12 +123,12 @@ const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
 );
 ```
 
-## Módulos de serviço
+## Service modules
 
-Cada produto tem seu módulo em `backend/src/modules/<nome>/`:
-- `usecases/` — lógica de negócio, monta bundles
-- `controllers/` — parsing de request/response HTTP
-- `routes/` — registra Express routes
+Each product has its own module in `backend/src/modules/<name>/`:
+- `usecases/` — business logic, builds bundles
+- `controllers/` — HTTP request/response parsing
+- `routes/` — registers Express routes
 
 ### Base
 - `modules/swap/` — Aerodrome swap
@@ -139,25 +139,25 @@ Cada produto tem seu módulo em `backend/src/modules/<nome>/`:
 - `modules/avax-swap/` — Trader Joe V1
 - `modules/avax-lending/` — Benqi Finance
 
-## Contratos — regras
+## Contracts — rules
 
-- `PanoramaExecutorV2.sol`: nunca adicionar funções de ação específica. O `execute()` genérico é o único entry point.
-- Adapters V2: sempre usar `Initializable`, `onlyExecutor`, `__gap[50]`, `receive() external payable`.
-- `DCAVault.sol`: usa `IPanoramaExecutor` interface (mesma assinatura V1/V2).
-- Storage layout: nunca reordenar variáveis de storage em upgrades. Apenas adicionar no final e reduzir `__gap`.
+- `PanoramaExecutorV2.sol`: never add action-specific functions. The generic `execute()` is the only entry point.
+- V2 Adapters: always use `Initializable`, `onlyExecutor`, `__gap[50]`, `receive() external payable`.
+- `DCAVault.sol`: uses the `IPanoramaExecutor` interface (same signature V1/V2).
+- Storage layout: never reorder storage variables in upgrades. Only append at the end and reduce `__gap`.
 
-## Chains suportadas
+## Supported chains
 
-| Chain | Status | Protocolos |
+| Chain | Status | Protocols |
 |-------|--------|-----------|
-| Base (8453) | Ativo | Aerodrome Finance |
-| Avalanche (43114) | Ativo | Trader Joe, Benqi, sAVAX |
+| Base (8453) | Active | Aerodrome Finance |
+| Avalanche (43114) | Active | Trader Joe, Benqi, sAVAX |
 
-O backend usa `getChainConfig("base")` ou `getChainConfig("avalanche")` de `config/chains.ts`.
+The backend uses `getChainConfig("base")` or `getChainConfig("avalanche")` from `config/chains.ts`.
 
-## Mocking em testes Vitest
+## Mocking in Vitest tests
 
-`vi.mock()` é hoisted pelo Vitest. Variáveis referenciadas dentro do factory devem ser declaradas com `vi.hoisted()`:
+`vi.mock()` is hoisted by Vitest. Variables referenced inside the factory must be declared with `vi.hoisted()`:
 
 ```typescript
 const { mockFn } = vi.hoisted(() => ({ mockFn: vi.fn() }));

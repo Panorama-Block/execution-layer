@@ -2,10 +2,12 @@ import { ethers } from "ethers";
 import { PreparedTransaction, TransactionBundle } from "../types/transaction";
 
 /**
- * Solidity function selectors for IProtocolAdapter actions.
+ * Solidity function selectors for adapter actions.
  * bytes4(keccak256("functionName(type,type,...)")) — standard Solidity ABI selectors.
- * PanoramaExecutor.execute() dispatches to the adapter using these selectors via low-level call.
+ * PanoramaExecutorV2.execute() dispatches to the adapter using these selectors via low-level call.
  */
+
+// ── Base (Aerodrome) selectors ──────────────────────────────────────────────
 export const ADAPTER_SELECTORS = {
   SWAP:             ethers.id("swap(address,address,uint256,uint256,address,bool)").slice(0, 10),
   ADD_LIQUIDITY:    ethers.id("addLiquidity(address,address,bool,uint256,uint256,uint256,uint256,address)").slice(0, 10),
@@ -13,6 +15,32 @@ export const ADAPTER_SELECTORS = {
   STAKE:            ethers.id("stake(address,uint256,address)").slice(0, 10),
   UNSTAKE:          ethers.id("unstake(address,uint256,address,address)").slice(0, 10),
   CLAIM_REWARDS:    ethers.id("claimRewards(address,address,address)").slice(0, 10),
+} as const;
+
+// ── Avalanche — TraderJoeAdapter selectors ──────────────────────────────────
+export const TRADERJOE_SELECTORS = {
+  SWAP:           ethers.id("swap(address,address,uint256,uint256,address)").slice(0, 10),
+  SWAP_WITH_PATH: ethers.id("swapWithPath(uint256,uint256,address[],address)").slice(0, 10),
+} as const;
+
+// ── Avalanche — BenqiLendAdapter selectors ──────────────────────────────────
+export const BENQI_SELECTORS = {
+  SUPPLY:        ethers.id("supply(address,uint256,address)").slice(0, 10),
+  REDEEM:        ethers.id("redeem(address,uint256,address)").slice(0, 10),
+  BORROW:        ethers.id("borrow(address,uint256,address)").slice(0, 10),
+  REPAY:         ethers.id("repay(address,uint256)").slice(0, 10),
+  SUPPLY_AVAX:   ethers.id("supplyAVAX(address)").slice(0, 10),
+  REDEEM_AVAX:   ethers.id("redeemAVAX(uint256,address)").slice(0, 10),
+  BORROW_AVAX:   ethers.id("borrowAVAX(uint256,address)").slice(0, 10),
+  REPAY_AVAX:    ethers.id("repayAVAX()").slice(0, 10),
+  ENTER_MARKETS: ethers.id("enterMarkets(address[])").slice(0, 10),
+} as const;
+
+// ── Avalanche — SAVAXAdapter selectors ──────────────────────────────────────
+export const SAVAX_SELECTORS = {
+  STAKE:          ethers.id("stake(address)").slice(0, 10),
+  REQUEST_UNLOCK: ethers.id("requestUnlock(uint256)").slice(0, 10),
+  REDEEM:         ethers.id("redeem(uint256,address)").slice(0, 10),
 } as const;
 
 export const PANORAMA_EXECUTOR_ABI_EXECUTE = [
@@ -60,16 +88,7 @@ export class BundleBuilder {
   }
 
   /**
-   * Appends a PanoramaExecutor.execute() step.
-   *
-   * @param protocolId    bytes32 protocol identifier (hex string)
-   * @param action        bytes4 adapter selector (from ADAPTER_SELECTORS)
-   * @param transfers     Array of {token, amount} to pull from user into adapter
-   * @param deadline      Unix timestamp deadline
-   * @param adapterData   ABI-encoded parameters for the adapter function (without selector)
-   * @param ethValue      msg.value in wei (for native ETH operations)
-   * @param executorAddress  PanoramaExecutor contract address
-   * @param description   Human-readable step description
+   * Appends a PanoramaExecutorV2.execute() step.
    */
   addExecute(
     protocolId: string,

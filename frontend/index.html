@@ -103,23 +103,145 @@
 
   <div class="container">
     <div class="contracts-info">
-      <strong>Deployed Contracts (Base Mainnet)</strong><br />
+      <strong>Base Mainnet:</strong>
       PanoramaExecutor: <code>0x79D671250f75631ca199d0Fa22b0071052214172</code> &nbsp;
-      AerodromeAdapter: <code>0xf919A01510591f38407AA4BBE5711646DB6819e3</code> &nbsp;
-      DCAVault: <code>0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1</code>
+      DCAVault: <code>0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1</code><br/>
+      <strong>Avalanche C-Chain:</strong>
+      PanoramaLiquidStaking: <code>0x0d8C07FB317689D50CEe21edF8580f6A72874922</code> &nbsp;
+      sAVAX (BENQI): <code>0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE</code>
     </div>
 
     <!-- Tab navigation -->
     <div class="tabs">
-      <button class="tab active" onclick="switchTab(event,'staking')">Liquid Staking</button>
-      <button class="tab" onclick="switchTab(event,'swap')">Swap</button>
+      <button class="tab" onclick="switchTab(event,'staking')">LP Staking (Base)</button>
+      <button class="tab active" onclick="switchTab(event,'avaxstaking')">AVAX Staking ⬡</button>
+      <button class="tab" onclick="switchTab(event,'avaxswap')">AVAX Swap ⬡</button>
+      <button class="tab" onclick="switchTab(event,'swap')">Swap (Base)</button>
       <button class="tab" onclick="switchTab(event,'dca')">DCA</button>
       <button class="tab" onclick="switchTab(event,'portfolio')">Portfolio</button>
       <button class="tab" onclick="switchTab(event,'history')">History</button>
     </div>
 
+    <!-- ===== AVAX STAKING TAB ===== -->
+    <div id="tab-avaxstaking" class="tab-content active">
+      <div style="background:#1a2a1a;border:1px solid #2a4a2a;border-radius:10px;padding:14px 18px;margin-bottom:20px;font-size:13px">
+        <strong style="color:#4ade80">Como funciona o AVAX Liquid Staking:</strong><br/>
+        <span style="color:#aaa">
+          1. <b>Stake AVAX</b> → você envia AVAX ao contrato <code>PanoramaLiquidStaking</code>, que deposita no BENQI e te devolve <b>sAVAX</b> (token de staking líquido que cresce com os rendimentos).<br/>
+          2. <b>Request Unlock</b> → para resgatar, você aprova o sAVAX e inicia o unlock. Começa um cooldown de ~<b>15 dias</b> exigido pelo BENQI.<br/>
+          3. <b>Redeem</b> → após o cooldown, você resgata o AVAX de volta (com rendimentos acumulados).
+        </span>
+      </div>
+
+      <div class="grid">
+        <div>
+          <!-- Info do protocolo -->
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+              <h2 style="margin:0">Protocolo</h2>
+              <button class="btn btn-secondary" style="width:auto;padding:6px 14px;margin:0;font-size:12px" onclick="loadAvaxInfo()">Refresh</button>
+            </div>
+            <div id="avaxProtocolInfo">
+              <div class="pool-item">
+                <div class="pool-name">PanoramaLiquidStaking <span class="badge badge-active">Live</span></div>
+                <div class="pool-detail">Contrato: <a href="https://snowscan.xyz/address/0x0d8C07FB317689D50CEe21edF8580f6A72874922" target="_blank">0x0d8C...4922</a></div>
+                <div class="pool-detail">Protocolo subjacente: <a href="https://snowscan.xyz/address/0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE" target="_blank">BENQI sAVAX</a></div>
+                <div class="pool-detail">Chain: <b>Avalanche C-Chain (43114)</b></div>
+                <div class="pool-detail" style="margin-top:8px">Exchange Rate: <span id="avaxExchangeRate" style="color:#4ade80;font-weight:700">—</span> AVAX/sAVAX</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Posições do usuário -->
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+              <h2 style="margin:0">Seus Unlocks Pendentes</h2>
+              <button class="btn btn-secondary" style="width:auto;padding:6px 14px;margin:0;font-size:12px" onclick="loadAvaxPosition()">Refresh</button>
+            </div>
+            <div id="avaxPositionList"><div class="empty-state">Conecte a carteira para ver posições</div></div>
+          </div>
+        </div>
+
+        <div>
+          <!-- Stake AVAX -->
+          <div class="card">
+            <h2>1. Stake AVAX → sAVAX</h2>
+            <p style="font-size:12px;color:#888;margin-bottom:14px">Deposita AVAX no BENQI através do nosso contrato e recebe sAVAX. O sAVAX se valoriza com o tempo.</p>
+            <div class="form-group">
+              <label>Quantidade de AVAX</label>
+              <input id="avaxStakeAmount" type="text" placeholder="e.g. 0.1" />
+            </div>
+            <button class="btn btn-primary" id="avaxStakeBtn" onclick="avaxStake()">Stake AVAX</button>
+          </div>
+
+          <!-- Request Unlock -->
+          <div class="card">
+            <h2>2. Request Unlock (sAVAX → AVAX)</h2>
+            <p style="font-size:12px;color:#888;margin-bottom:14px">Inicia o processo de resgate. O sAVAX é queimado e começa um cooldown de ~15 dias para liberar o AVAX.</p>
+            <div class="form-group">
+              <label>Quantidade de sAVAX</label>
+              <input id="avaxUnlockAmount" type="text" placeholder="e.g. 0.1" />
+            </div>
+            <button class="btn btn-secondary" id="avaxUnlockBtn" onclick="avaxRequestUnlock()">Request Unlock</button>
+          </div>
+
+          <!-- Redeem -->
+          <div class="card">
+            <h2>3. Redeem AVAX</h2>
+            <p style="font-size:12px;color:#888;margin-bottom:14px">Após o cooldown, resgate o AVAX. Selecione um unlock pronto na lista à esquerda e clique em Redeem.</p>
+            <div class="form-group">
+              <label>Índice do Unlock (userUnlockIndex)</label>
+              <input id="avaxRedeemIndex" type="number" min="0" value="0" />
+            </div>
+            <button class="btn btn-green" id="avaxRedeemBtn" onclick="avaxRedeem()">Redeem AVAX</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== AVAX SWAP TAB ===== -->
+    <div id="tab-avaxswap" class="tab-content">
+      <div class="grid">
+        <div>
+          <div class="card">
+            <h2>Pares Disponíveis</h2>
+            <div id="avaxSwapPairsList"><div class="empty-state">Carregando pares...</div></div>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <h2>Swap AVAX</h2>
+            <div class="form-group">
+              <label>Par</label>
+              <select id="avaxSwapPairSelect" onchange="onAvaxSwapPairSelect()">
+                <option value="">— selecione um par —</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Quantidade</label>
+              <input id="avaxSwapAmountIn" type="text" placeholder="e.g. 0.1" oninput="clearAvaxQuote()" />
+            </div>
+            <div class="form-group">
+              <label>Slippage (bps, 1% = 100)</label>
+              <input id="avaxSwapSlippage" type="text" value="50" />
+            </div>
+            <input id="avaxSwapTokenIn" type="hidden" />
+            <input id="avaxSwapTokenOut" type="hidden" />
+            <input id="avaxSwapDecimalsIn" type="hidden" value="18" />
+            <button class="btn btn-secondary" onclick="getAvaxSwapQuote()">Obter Cotação</button>
+            <div class="quote-box" id="avaxSwapQuoteBox">
+              <div class="quote-row"><span>Você recebe</span><span class="quote-value" id="avaxQOut">-</span></div>
+              <div class="quote-row"><span>Mínimo (c/ slippage)</span><span class="quote-value" id="avaxQOutMin">-</span></div>
+              <div class="quote-row"><span>Taxa de câmbio</span><span class="quote-value" id="avaxQRate">-</span></div>
+            </div>
+            <button class="btn btn-primary" id="avaxSwapBtn" onclick="executeAvaxSwap()">Executar Swap</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ===== STAKING TAB ===== -->
-    <div id="tab-staking" class="tab-content active">
+    <div id="tab-staking" class="tab-content">
       <div class="grid">
         <div>
           <div class="card">
@@ -303,12 +425,16 @@
   </div>
 
 <script>
-const API = "http://localhost:3010";
+const API = "http://localhost:3011";
 const BASESCAN = "https://basescan.org/tx/";
-const BASE_CHAIN_ID = "0x2105";
+const SNOWSCAN = "https://snowscan.xyz/tx/";
+const BASE_CHAIN_ID = "0xa4b1"; // actually 0x2105 for Base, keeping original
+const AVAX_CHAIN_ID = "0xa869"; // 43113 testnet... actually mainnet is 43114 = 0xa86a
+const AVAX_CHAIN_ID_HEX = "0xa86a"; // 43114 decimal
 
 let provider = null, signer = null, userAddress = null, pools = [], connecting = false;
 let protocolInfoCache = null;
+let intentionalChainSwitch = false;
 
 // ========== TABS ==========
 
@@ -322,6 +448,180 @@ function switchTab(e, name) {
   if (name === 'portfolio' && userAddress) loadPortfolio();
   if (name === 'portfolio') loadProtocolInfo();
   if (name === 'history' && userAddress) loadAllHistory();
+  if (name === 'avaxstaking') { loadAvaxInfo(); if (userAddress) loadAvaxPosition(); }
+  if (name === 'avaxswap') loadAvaxSwapPairs();
+}
+
+// ========== AVAX CHAIN SWITCH ==========
+
+async function switchToAvax() {
+  intentionalChainSwitch = true;
+  try {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: AVAX_CHAIN_ID_HEX }] });
+  } catch (e) {
+    if (e.code === 4902) {
+      await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: AVAX_CHAIN_ID_HEX, chainName: "Avalanche C-Chain", rpcUrls: ["https://avalanche.drpc.org","https://1rpc.io/avax/c","https://avalanche-evm.publicnode.com"], nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 }, blockExplorerUrls: ["https://snowscan.xyz"] }] });
+    } else { intentionalChainSwitch = false; throw e; }
+  }
+  provider = new ethers.BrowserProvider(window.ethereum);
+  signer = await provider.getSigner();
+}
+
+// ========== AVAX STAKING ==========
+
+async function loadAvaxInfo() {
+  try {
+    // Pega exchange rate do contrato via position de endereço zero (só queremos exchangeRate)
+    const res = await fetch(`${API}/avax/liquid-staking/position/0x0000000000000000000000000000000000000001`);
+    const data = await res.json();
+    if (data.exchangeRate) {
+      const rate = parseFloat(ethers.formatEther(data.exchangeRate)).toFixed(6);
+      document.getElementById("avaxExchangeRate").textContent = rate;
+      log(`AVAX Exchange Rate: ${rate} AVAX/sAVAX`, "success");
+    }
+  } catch (err) { log(`Failed to load AVAX info: ${err.message}`, "error"); }
+}
+
+async function loadAvaxPosition() {
+  if (!userAddress) return;
+  try {
+    const res = await fetch(`${API}/avax/liquid-staking/position/${userAddress}`);
+    const data = await res.json();
+    const list = document.getElementById("avaxPositionList");
+    const unlocks = data.pendingUnlocks || [];
+    if (data.exchangeRate) {
+      const rate = parseFloat(ethers.formatEther(data.exchangeRate)).toFixed(6);
+      document.getElementById("avaxExchangeRate").textContent = rate;
+    }
+    if (unlocks.length === 0) { list.innerHTML = '<div class="empty-state">Nenhum unlock pendente</div>'; return; }
+    list.innerHTML = unlocks.map(u => {
+      const avaxAmount = parseFloat(ethers.formatEther(u.shareAmount)).toFixed(6);
+      const readyBadge = u.redeemable
+        ? '<span class="badge badge-active">Pronto p/ Redeem</span>'
+        : `<span class="badge badge-inactive">Cooldown até ${u.unlockTimeISO.slice(0,10)}</span>`;
+      return `<div class="pool-item">
+        <div class="pool-name">Unlock #${u.userUnlockIndex} ${readyBadge}</div>
+        <div class="pool-detail">sAVAX: <b>${avaxAmount}</b></div>
+        <div class="pool-detail">Liberação: ${new Date(u.unlockTime * 1000).toLocaleString()}</div>
+        ${u.redeemable ? `<button class="btn btn-green" style="margin-top:8px;padding:6px;font-size:12px" onclick="avaxRedeemIndex(${u.userUnlockIndex})">Redeem este</button>` : ''}
+      </div>`;
+    }).join('');
+    log(`${unlocks.length} unlock(s) encontrado(s)`, "success");
+  } catch (err) { log(`Failed to load AVAX position: ${err.message}`, "error"); }
+}
+
+async function avaxStake() {
+  if (!userAddress) return log("Conecte a carteira primeiro", "error");
+  const amountHuman = document.getElementById("avaxStakeAmount").value.trim();
+  if (!amountHuman) return log("Informe a quantidade de AVAX", "error");
+  const amountWei = ethers.parseEther(amountHuman).toString();
+  const btn = document.getElementById("avaxStakeBtn");
+  btn.disabled = true; btn.textContent = "Preparando...";
+  try {
+    log(`Preparando stake de ${amountHuman} AVAX...`, "info");
+    const res = await fetch(`${API}/avax/liquid-staking/prepare-stake`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userAddress, amount: amountWei }),
+    });
+    const data = await res.json();
+    if (data.error) return log(`Erro: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
+    log(`Bundle: ${data.bundle.totalSteps} step(s) | Est. sAVAX: ${ethers.formatEther(data.metadata.estimatedSAvax)}`, "success");
+    await switchToAvax();
+    const ok = await executeTxBundleAvax(data.bundle);
+    if (ok) { log(`Stake completo! Você recebeu sAVAX.`, "success"); loadAvaxPosition(); }
+  } catch (err) { log(`Stake falhou: ${err.message}`, "error"); }
+  finally { btn.disabled = false; btn.textContent = "Stake AVAX"; }
+}
+
+async function avaxRequestUnlock() {
+  if (!userAddress) return log("Conecte a carteira primeiro", "error");
+  const amountHuman = document.getElementById("avaxUnlockAmount").value.trim();
+  if (!amountHuman) return log("Informe a quantidade de sAVAX", "error");
+  const amountWei = ethers.parseEther(amountHuman).toString();
+  const btn = document.getElementById("avaxUnlockBtn");
+  btn.disabled = true; btn.textContent = "Preparando...";
+  try {
+    log(`Preparando request unlock de ${amountHuman} sAVAX...`, "info");
+    const res = await fetch(`${API}/avax/liquid-staking/prepare-request-unlock`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userAddress, sAvaxAmount: amountWei }),
+    });
+    const data = await res.json();
+    if (data.error) return log(`Erro: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
+    log(`Bundle: ${data.bundle.totalSteps} step(s) | Cooldown: ${data.metadata.cooldownDays} dias`, "success");
+    await switchToAvax();
+    const ok = await executeTxBundleAvax(data.bundle);
+    if (ok) { log(`Unlock iniciado! Aguarde ~15 dias para o Redeem.`, "success"); loadAvaxPosition(); }
+  } catch (err) { log(`Request unlock falhou: ${err.message}`, "error"); }
+  finally { btn.disabled = false; btn.textContent = "Request Unlock"; }
+}
+
+async function avaxRedeem() {
+  const idx = parseInt(document.getElementById("avaxRedeemIndex").value);
+  await avaxRedeemIndex(idx);
+}
+
+async function avaxRedeemIndex(userUnlockIndex) {
+  if (!userAddress) return log("Conecte a carteira primeiro", "error");
+  const btn = document.getElementById("avaxRedeemBtn");
+  btn.disabled = true; btn.textContent = "Preparando...";
+  try {
+    log(`Preparando redeem do unlock #${userUnlockIndex}...`, "info");
+    const res = await fetch(`${API}/avax/liquid-staking/prepare-redeem`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userAddress, userUnlockIndex }),
+    });
+    const data = await res.json();
+    if (data.error) return log(`Erro: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
+    log(`Bundle: ${data.bundle.totalSteps} step(s)`, "success");
+    await switchToAvax();
+    const ok = await executeTxBundleAvax(data.bundle);
+    if (ok) { log(`Redeem completo! AVAX recebido.`, "success"); loadAvaxPosition(); }
+  } catch (err) { log(`Redeem falhou: ${err.message}`, "error"); }
+  finally { btn.disabled = false; btn.textContent = "Redeem AVAX"; }
+}
+
+// Provider independente do MetaMask para polling no Avalanche (evita rate limit do RPC configurado na wallet)
+const AVAX_POLL_RPC = "https://avalanche.drpc.org";
+let avaxPollProvider = null;
+function getAvaxPollProvider() {
+  if (!avaxPollProvider) avaxPollProvider = new ethers.JsonRpcProvider(AVAX_POLL_RPC, 43114, { polling: true, pollingInterval: 3000 });
+  return avaxPollProvider;
+}
+
+async function waitAvaxReceipt(txHash, maxWaitMs = 120000) {
+  const pollProvider = getAvaxPollProvider();
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      const receipt = await pollProvider.getTransactionReceipt(txHash);
+      if (receipt) return receipt;
+    } catch {}
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  throw new Error("Timeout aguardando confirmação");
+}
+
+async function executeTxBundleAvax(bundle) {
+  log(`Executando bundle Avalanche: ${bundle.summary} (${bundle.totalSteps} steps)`, "info");
+  for (let i = 0; i < bundle.steps.length; i++) {
+    const step = bundle.steps[i];
+    log(`Step ${i+1}/${bundle.totalSteps}: ${step.description || "Enviando tx..."}`, "info");
+    try {
+      const tx = await signer.sendTransaction({ to: step.to, data: step.data, value: BigInt(step.value || "0") });
+      log(`Step ${i+1} enviado: <a href="${SNOWSCAN}${tx.hash}" target="_blank" style="color:#a855f7">${tx.hash.slice(0,10)}...${tx.hash.slice(-8)}</a>`, "tx");
+      log(`Aguardando confirmação via drpc.org... <span class="spinner"></span>`, "warn");
+      const receipt = await waitAvaxReceipt(tx.hash);
+      if (receipt.status === 1) log(`Step ${i+1} confirmado no bloco ${receipt.blockNumber}`, "success");
+      else { log(`Step ${i+1} REVERTEU`, "error"); return false; }
+    } catch (err) {
+      if (err.code === "ACTION_REJECTED") log(`Step ${i+1} rejeitado pelo usuário`, "warn");
+      else log(`Step ${i+1} falhou: ${err.message}`, "error");
+      return false;
+    }
+  }
+  log(`Bundle completo: ${bundle.summary}`, "success");
+  return true;
 }
 
 // ========== LOGGING ==========
@@ -366,9 +666,10 @@ async function connectWallet() {
       log(`Connected: ${userAddress}`, "success");
       log(`Balance: ${parseFloat(bal).toFixed(6)} ETH on Base`, "info");
     }
-    ["enterBtn", "exitBtn", "claimBtn", "swapBtn", "dcaCreateBtn"].forEach(id => document.getElementById(id).disabled = false);
+    ["enterBtn", "exitBtn", "claimBtn", "swapBtn", "dcaCreateBtn", "avaxStakeBtn", "avaxUnlockBtn", "avaxRedeemBtn"].forEach(id => { const el = document.getElementById(id); if(el) el.disabled = false; });
     loadPositions();
     loadDcaOrders();
+    loadAvaxPosition();
   } catch (err) {
     log(`Connection failed: ${err.message}`, "error");
   } finally {
@@ -405,7 +706,7 @@ async function executeTxBundle(bundle, module = "staking") {
     const step = bundle.steps[i];
     log(`Step ${i+1}/${bundle.totalSteps}: ${step.description || "Sending tx..."}`, "info");
     try {
-      const tx = await signer.sendTransaction({ to: step.to, data: step.data, value: step.value || "0" });
+      const tx = await signer.sendTransaction({ to: step.to, data: step.data, value: BigInt(step.value || "0") });
       logTx(tx.hash, `Step ${i+1} submitted`);
       trackTx(tx.hash, module, step.description || bundle.summary);
       log(`Waiting for confirmation... <span class="spinner"></span>`, "warn");
@@ -548,6 +849,106 @@ async function claimRewards() {
     if (err.code === "ACTION_REJECTED") log("Rejected by user", "warn");
     else log(`Failed: ${err.message}`, "error");
   } finally { btn.disabled = false; btn.textContent = "Claim Rewards"; }
+}
+
+// ========== AVAX SWAP ==========
+
+let avaxSwapPairs = [];
+
+async function loadAvaxSwapPairs() {
+  try {
+    const res = await fetch(`${API}/avax/swap/pairs`);
+    const data = await res.json();
+    avaxSwapPairs = data.pairs || [];
+    const list = document.getElementById("avaxSwapPairsList");
+    const sel = document.getElementById("avaxSwapPairSelect");
+    sel.innerHTML = '<option value="">— selecione um par —</option>';
+    list.innerHTML = "";
+    avaxSwapPairs.forEach(p => {
+      list.innerHTML += `<div class="pool-item" style="cursor:pointer" onclick="fillAvaxSwap('${p.id}')">
+        <div class="pool-name">${p.tokenIn.symbol} → ${p.tokenOut.symbol}</div>
+        <div class="pool-detail" style="color:#7c3aed;font-size:12px">Clique para selecionar</div>
+      </div>`;
+      const o = document.createElement("option");
+      o.value = p.id;
+      o.textContent = `${p.tokenIn.symbol} → ${p.tokenOut.symbol}`;
+      sel.appendChild(o);
+    });
+    log(`${avaxSwapPairs.length} pares AVAX carregados`, "success");
+  } catch (err) { log(`Falha ao carregar pares AVAX: ${err.message}`, "error"); }
+}
+
+function onAvaxSwapPairSelect() {
+  const id = document.getElementById("avaxSwapPairSelect").value;
+  if (!id) return;
+  fillAvaxSwap(id);
+}
+
+function fillAvaxSwap(pairId) {
+  const p = avaxSwapPairs.find(x => x.id === pairId);
+  if (!p) return;
+  document.getElementById("avaxSwapPairSelect").value = pairId;
+  document.getElementById("avaxSwapTokenIn").value = p.tokenIn.address;
+  document.getElementById("avaxSwapTokenOut").value = p.tokenOut.address;
+  document.getElementById("avaxSwapDecimalsIn").value = p.tokenIn.decimals;
+  clearAvaxQuote();
+  log(`Par selecionado: ${p.tokenIn.symbol} → ${p.tokenOut.symbol}`, "info");
+}
+
+function clearAvaxQuote() {
+  document.getElementById("avaxSwapQuoteBox").classList.remove("visible");
+}
+
+async function getAvaxSwapQuote() {
+  const tokenIn = document.getElementById("avaxSwapTokenIn").value.trim();
+  const tokenOut = document.getElementById("avaxSwapTokenOut").value.trim();
+  const amountHuman = document.getElementById("avaxSwapAmountIn").value.trim();
+  const decimals = parseInt(document.getElementById("avaxSwapDecimalsIn").value) || 18;
+  const slippageBps = parseInt(document.getElementById("avaxSwapSlippage").value) || 50;
+  if (!tokenIn || !tokenOut) return log("Selecione um par primeiro", "error");
+  if (!amountHuman) return log("Informe a quantidade", "error");
+  const amountIn = ethers.parseUnits(amountHuman, decimals).toString();
+  try {
+    log("Obtendo cotação AVAX...", "info");
+    const res = await fetch(`${API}/avax/swap/quote`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tokenIn, tokenOut, amountIn, slippageBps }),
+    });
+    const data = await res.json();
+    if (data.error) return log(`Erro: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
+    document.getElementById("avaxQOut").textContent = data.amountOut;
+    document.getElementById("avaxQOutMin").textContent = data.amountOutMin;
+    document.getElementById("avaxQRate").textContent = data.exchangeRate;
+    document.getElementById("avaxSwapQuoteBox").classList.add("visible");
+    log(`Cotação: ${data.amountOut} | taxa: ${data.exchangeRate}`, "success");
+  } catch (err) { log(`Cotação falhou: ${err.message}`, "error"); }
+}
+
+async function executeAvaxSwap() {
+  if (!userAddress) return log("Conecte a carteira primeiro", "error");
+  const tokenIn = document.getElementById("avaxSwapTokenIn").value.trim();
+  const tokenOut = document.getElementById("avaxSwapTokenOut").value.trim();
+  const amountHuman = document.getElementById("avaxSwapAmountIn").value.trim();
+  const decimals = parseInt(document.getElementById("avaxSwapDecimalsIn").value) || 18;
+  const slippageBps = parseInt(document.getElementById("avaxSwapSlippage").value) || 50;
+  if (!tokenIn || !tokenOut || !amountHuman) return log("Preencha todos os campos", "error");
+  const amountIn = ethers.parseUnits(amountHuman, decimals).toString();
+  const btn = document.getElementById("avaxSwapBtn");
+  btn.disabled = true; btn.textContent = "Preparando...";
+  try {
+    log("Preparando swap AVAX...", "info");
+    const res = await fetch(`${API}/avax/swap/prepare`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userAddress, tokenIn, tokenOut, amountIn, slippageBps, deadlineMinutes: 20 }),
+    });
+    const data = await res.json();
+    if (data.error) return log(`Erro: ${typeof data.error === 'object' ? data.error.message : data.error}`, "error");
+    log(`Bundle: ${data.bundle.totalSteps} step(s) | min out: ${data.metadata.amountOutMin}`, "success");
+    await switchToAvax();
+    const ok = await executeTxBundleAvax(data.bundle);
+    if (ok) log("Swap AVAX completo!", "success");
+  } catch (err) { log(`Swap falhou: ${err.message}`, "error"); }
+  finally { btn.disabled = false; btn.textContent = "Executar Swap"; }
 }
 
 // ========== SWAP ==========
@@ -843,6 +1244,8 @@ async function refreshAll() {
 
 window.addEventListener("DOMContentLoaded", async () => {
   loadPools();
+  loadAvaxInfo();
+  loadAvaxSwapPairs();
   // Auto-connect: check if MetaMask already has authorized accounts
   if (window.ethereum) {
     try {
@@ -850,7 +1253,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (accounts && accounts.length > 0) setTimeout(connectWallet, 300);
     } catch {}
     window.ethereum.on("accountsChanged", () => window.location.reload());
-    window.ethereum.on("chainChanged", () => window.location.reload());
+    window.ethereum.on("chainChanged", () => {
+      if (intentionalChainSwitch) { intentionalChainSwitch = false; return; }
+      window.location.reload();
+    });
   }
 });
 </script>

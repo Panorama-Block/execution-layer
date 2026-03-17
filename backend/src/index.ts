@@ -11,8 +11,9 @@ import { stakingRoutes }        from "./modules/liquid-staking/routes/staking.ro
 import { swapRoutes }           from "./modules/swap/routes/swap.routes";
 import { dcaRoutes }            from "./modules/dca/routes/dca.routes";
 import { avaxSwapRoutes }       from "./modules/avax-swap/routes/avax-swap.routes";
-import { avaxLendingRoutes }    from "./modules/avax-lending/routes/avax-lending.routes";
-import { errorHandler }         from "./middleware/errorHandler";
+import { avaxLendingRoutes }         from "./modules/avax-lending/routes/avax-lending.routes";
+import { avaxLiquidStakingRoutes }   from "./modules/avax-liquid-staking/routes/avax-liquid-staking.routes";
+import { errorHandler }              from "./middleware/errorHandler";
 import { rateLimiter } from "./middleware/rateLimiter";
 
 const app = express();
@@ -34,6 +35,7 @@ app.use("/swap", swapRoutes);
 app.use("/dca", dcaRoutes);
 app.use("/avax/swap", avaxSwapRoutes);
 app.use("/avax/lending", avaxLendingRoutes);
+app.use("/avax/liquid-staking", avaxLiquidStakingRoutes);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "execution-service", port: PORT });

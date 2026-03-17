@@ -69,6 +69,18 @@ export const PANORAMA_SWAP_ABI = [
   "function WAVAX() external view returns (address)",
 ] as const;
 
+export const PANORAMA_LIQUID_STAKING_ABI = [
+  "function stake() external payable returns (uint256 sAvaxReceived)",
+  "function requestUnlock(uint256 sAvaxAmount) external returns (uint256 userUnlockIndex)",
+  "function redeem(uint256 userUnlockIndex) external",
+  "function previewStake(uint256 avaxAmount) external view returns (uint256)",
+  "function previewRedeem(uint256 sAvaxAmount) external view returns (uint256)",
+  "function exchangeRate() external view returns (uint256)",
+  "function getUnlockRequestCount(address user) external view returns (uint256)",
+  "function getUnlockRequest(address user, uint256 userUnlockIndex) external view returns (tuple(uint256 shareAmount, uint256 unlockTime))",
+  "function sAvax() external view returns (address)",
+] as const;
+
 export const PANORAMA_LEND_ABI = [
   // ERC20 operations
   "function supply(address qToken, uint256 amount) external",

@@ -4,8 +4,9 @@ pragma solidity ^0.8.20;
 import {Script, console} from "forge-std/Script.sol";
 import {PanoramaSwap} from "../../contracts/avax/core/PanoramaSwap.sol";
 import {PanoramaLend} from "../../contracts/avax/lending/PanoramaLend.sol";
+import {PanoramaLiquidStaking} from "../../contracts/avax/liquid-staking/PanoramaLiquidStaking.sol";
 
-/// @notice Deploy PanoramaSwap and PanoramaLend to Avalanche C-Chain mainnet
+/// @notice Deploy PanoramaSwap, PanoramaLend and PanoramaLiquidStaking to Avalanche C-Chain mainnet
 ///
 /// Usage:
 ///   source .env
@@ -19,9 +20,10 @@ import {PanoramaLend} from "../../contracts/avax/lending/PanoramaLend.sol";
 contract DeployAvax is Script {
     // ─── Avalanche C-Chain Mainnet Addresses ──────────────────────────────
 
-    address constant TRADER_JOE_ROUTER = 0x60aE616a2155Ee3d9A68541Ba4544862310933d4;
-    address constant BENQI_COMPTROLLER = 0x486Af39519B4Dc9a7fCcd318217352830E8AD9b4;
-    address constant QI_AVAX = 0x5C0401e81Bc07Ca70fAD469b451682c0d747Ef1c;
+    address constant TRADER_JOE_ROUTER  = 0x60aE616a2155Ee3d9A68541Ba4544862310933d4;
+    address constant BENQI_COMPTROLLER  = 0x486Af39519B4Dc9a7fCcd318217352830E8AD9b4;
+    address constant QI_AVAX            = 0x5C0401e81Bc07Ca70fAD469b451682c0d747Ef1c;
+    address constant S_AVAX             = 0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE; // BENQI sAVAX
 
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
@@ -40,15 +42,20 @@ contract DeployAvax is Script {
         PanoramaLend lend = new PanoramaLend(BENQI_COMPTROLLER, QI_AVAX);
         console.log("PanoramaLend deployed at:", address(lend));
 
+        // Deploy PanoramaLiquidStaking
+        PanoramaLiquidStaking liquidStaking = new PanoramaLiquidStaking(S_AVAX);
+        console.log("PanoramaLiquidStaking deployed at:", address(liquidStaking));
+
         vm.stopBroadcast();
 
         console.log("\n=== Deployment Summary ===");
-        console.log("Network:       Avalanche C-Chain (43114)");
-        console.log("PanoramaSwap:  ", address(swap));
-        console.log("PanoramaLend:  ", address(lend));
+        console.log("Network:              Avalanche C-Chain (43114)");
+        console.log("PanoramaSwap:         ", address(swap));
+        console.log("PanoramaLend:         ", address(lend));
+        console.log("PanoramaLiquidStaking:  ", address(liquidStaking));
         console.log("\nNext steps:");
-        console.log("1. Verify PanoramaSwap on Snowtrace");
-        console.log("2. Verify PanoramaLend on Snowtrace");
-        console.log("3. Sign ownership proof with deployer wallet");
+        console.log("1. Verify contracts on Snowtrace");
+        console.log("2. Sign ownership proof with deployer wallet");
+        console.log("3. Register on Retro9000 Discover Projects page");
     }
 }

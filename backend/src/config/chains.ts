@@ -10,6 +10,7 @@ export interface ChainConfig {
     weth: string;
     panoramaSwap?: string;
     panoramaLend?: string;
+    panoramaLiquidStaking?: string;
   };
 }
 
@@ -42,6 +43,7 @@ export function getChainConfig(chain: string): ChainConfig {
         weth: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", // WAVAX
         panoramaSwap: process.env.PANORAMA_SWAP_ADDRESS || "",
         panoramaLend: process.env.PANORAMA_LEND_ADDRESS || "",
+        panoramaLiquidStaking: process.env.PANORAMA_LIQUID_STAKING_ADDRESS || "",
       },
     };
   }

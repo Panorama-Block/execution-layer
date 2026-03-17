@@ -2,7 +2,7 @@
 src = "contracts"
 out = "out"
 libs = ["lib"]
-solc = "0.8.20"
+solc = "0.8.24"
 optimizer = true
 optimizer_runs = 200
 via_ir = true
@@ -12,7 +12,7 @@ evm_version = "paris"
 src = "contracts/avax"
 out = "out"
 libs = ["lib"]
-solc = "0.8.20"
+solc = "0.8.24"
 optimizer = true
 optimizer_runs = 200
 via_ir = true

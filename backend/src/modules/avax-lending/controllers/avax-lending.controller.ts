@@ -62,11 +62,13 @@ export const prepareSupply = asyncHandler(async (req: Request, res: Response) =>
 });
 
 export const prepareRedeem = asyncHandler(async (req: Request, res: Response) => {
+  console.log("[lending/redeem] body:", JSON.stringify(req.body));
   const result = await executePrepareRedeem({
     userAddress:   req.body.userAddress,
     qTokenAddress: req.body.qTokenAddress,
     qTokenAmount:  req.body.qTokenAmount,
   });
+  console.log("[lending/redeem] success, steps:", result.bundle.steps.length);
   res.json(result);
 });
 

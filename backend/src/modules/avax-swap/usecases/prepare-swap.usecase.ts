@@ -40,8 +40,17 @@ const WAVAX_UNWRAP_ABI = ["function withdraw(uint256 wad) external"];
 export async function executePrepareAvaxSwap(
   req: PrepareAvaxSwapRequest
 ): Promise<PrepareAvaxSwapResponse> {
+  console.log("[avax-swap] prepare request:", JSON.stringify({
+    userAddress: req.userAddress,
+    tokenIn:     req.tokenIn,
+    tokenOut:    req.tokenOut,
+    amountIn:    req.amountIn,
+    slippageBps: req.slippageBps,
+  }));
+
   const chain        = getChainConfig("avalanche");
   const executorAddr = chain.contracts.panoramaExecutor;
+  console.log("[avax-swap] executorAddr:", executorAddr);
   if (!executorAddr) throw new AppError("INTERNAL_ERROR", "PanoramaExecutor not deployed on Avalanche");
 
   const amountIn     = BigInt(req.amountIn);
@@ -88,6 +97,18 @@ export async function executePrepareAvaxSwap(
   const isAvaxOut = req.tokenOut.toLowerCase() === WAVAX.toLowerCase();
   const swapType  = isAvaxIn ? "avax-to-token" : isAvaxOut ? "token-to-avax" : "token-to-token";
 
+  console.log("[avax-swap] quote:", {
+    path,
+    amountIn:     amountIn.toString(),
+    amountOut:    amountOut.toString(),
+    amountOutMin: amountOutMin.toString(),
+    swapType,
+    isAvaxIn,
+    isAvaxOut,
+    deadline,
+    WAVAX_const:  WAVAX,
+  });
+
   const protocolId = encodeProtocolId("traderjoe");
   const builder    = new BundleBuilder(chain.chainId);
 
@@ -117,6 +138,15 @@ export async function executePrepareAvaxSwap(
     [amountIn, amountOutMin, path, req.userAddress]
   );
 
+  console.log("[avax-swap] adapterData:", {
+    selector:     TRADERJOE_SELECTORS.SWAP_WITH_PATH,
+    protocolId,
+    transfers:    transfers.map(t => ({ token: t.token, amount: t.amount.toString() })),
+    ethValue:     ethValue.toString(),
+    executorAddr,
+    adapterData,
+  });
+
   builder.addExecute(
     protocolId,
     TRADERJOE_SELECTORS.SWAP_WITH_PATH,
@@ -128,12 +158,17 @@ export async function executePrepareAvaxSwap(
     `Swap via TraderJoe (${swapType})`
   );
 
+  const bundle = builder.build(`Swap ${swapType} via TraderJoe on Avalanche`);
+  console.log("[avax-swap] bundle steps:", bundle.steps.map(s => ({
+    to: s.to, value: s.value, dataLen: s.data.length, description: s.description,
+  })));
+
   const priceImpact = amountIn > 0n
     ? (100 - (Number(amountOut) / Number(amountIn)) * 100).toFixed(4)
     : "0";
 
   return {
-    bundle: builder.build(`Swap ${swapType} via TraderJoe on Avalanche`),
+    bundle,
     metadata: {
       tokenIn:      req.tokenIn,
       tokenOut:     req.tokenOut,

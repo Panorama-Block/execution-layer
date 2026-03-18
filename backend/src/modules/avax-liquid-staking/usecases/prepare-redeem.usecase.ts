@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../../../config/chains";
-import { PANORAMA_LIQUID_STAKING_ABI } from "../../../utils/abi";
-import { BundleBuilder } from "../../../shared/bundle-builder";
+import { encodeProtocolId, getDeadline } from "../../../utils/encoding";
+import { BundleBuilder, SAVAX_SELECTORS } from "../../../shared/bundle-builder";
 import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
 
@@ -18,24 +18,33 @@ export interface PrepareRedeemResponse {
   };
 }
 
-const LIQUID_STAKING_IFACE = new ethers.Interface(PANORAMA_LIQUID_STAKING_ABI);
-
 export async function executePrepareRedeem(req: PrepareRedeemRequest): Promise<PrepareRedeemResponse> {
-  const chain = getChainConfig("avalanche");
-  const contractAddr = chain.contracts.panoramaLiquidStaking;
-  if (!contractAddr) throw new AppError("INTERNAL_ERROR", "PanoramaLiquidStaking not deployed yet");
+  const chain        = getChainConfig("avalanche");
+  const executorAddr = chain.contracts.panoramaExecutor;
+  if (!executorAddr) throw new AppError("INTERNAL_ERROR", "PanoramaExecutor not deployed on Avalanche");
 
   if (req.userUnlockIndex < 0) throw new AppError("INVALID_AMOUNT", "userUnlockIndex must be >= 0");
 
-  const builder = new BundleBuilder(chain.chainId);
+  const protocolId = encodeProtocolId("savax");
+  const builder    = new BundleBuilder(chain.chainId);
+  const deadline   = getDeadline(20);
 
-  builder["steps"].push({
-    to: contractAddr,
-    data: LIQUID_STAKING_IFACE.encodeFunctionData("redeem", [req.userUnlockIndex]),
-    value: "0",
-    chainId: chain.chainId,
-    description: `Redeem AVAX from unlock request #${req.userUnlockIndex}`,
-  });
+  // redeem(uint256 unlockIndex, address recipient)
+  const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+    ["uint256", "address"],
+    [req.userUnlockIndex, req.userAddress]
+  );
+
+  builder.addExecute(
+    protocolId,
+    SAVAX_SELECTORS.REDEEM,
+    [],
+    deadline,
+    adapterData,
+    0n,
+    executorAddr,
+    `Redeem AVAX from unlock request #${req.userUnlockIndex}`
+  );
 
   return {
     bundle: builder.build(`Redeem AVAX from unlock request #${req.userUnlockIndex}`),

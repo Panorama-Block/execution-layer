@@ -8,9 +8,6 @@ export interface ChainConfig {
     panoramaExecutor: string;
     dcaVault: string;
     weth: string;
-    panoramaSwap?: string;
-    panoramaLend?: string;
-    panoramaLiquidStaking?: string;
   };
 }
 
@@ -38,12 +35,9 @@ export function getChainConfig(chain: string): ChainConfig {
       nativeCurrency: { name: "Avalanche", symbol: "AVAX", decimals: 18 },
       blockExplorer: "https://snowtrace.io",
       contracts: {
-        panoramaExecutor: "",
+        panoramaExecutor: process.env.AVAX_EXECUTOR_ADDRESS || "",
         dcaVault: "",
         weth: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", // WAVAX
-        panoramaSwap: process.env.PANORAMA_SWAP_ADDRESS || "",
-        panoramaLend: process.env.PANORAMA_LEND_ADDRESS || "",
-        panoramaLiquidStaking: process.env.PANORAMA_LIQUID_STAKING_ADDRESS || "",
       },
     };
   }

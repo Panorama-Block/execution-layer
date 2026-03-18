@@ -22,11 +22,11 @@ const PORT = process.env.PORT || 3010;
 // CORS — restrict to allowlisted origins in production
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
-  : ["http://localhost:3000", "http://localhost:3010"];
+  : ["http://localhost:3000", "http://localhost:3010", "http://localhost:7777"];
 
 app.use(helmet());
 
-// Request logger — mostra todas as requisições no terminal para facilitar debug local
+// Request logger — logs every incoming request for local debugging
 app.use((req, _res, next) => {
   console.log(`[execution-layer] ← ${req.method} ${req.path}`);
   next();

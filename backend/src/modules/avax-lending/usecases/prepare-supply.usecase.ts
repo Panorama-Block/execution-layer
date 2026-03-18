@@ -1,16 +1,16 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../../../config/chains";
 import { avaxService } from "../../../shared/services/avax.service";
-import { PANORAMA_LEND_ABI } from "../../../utils/abi";
-import { BundleBuilder } from "../../../shared/bundle-builder";
+import { encodeProtocolId, getDeadline } from "../../../utils/encoding";
+import { BundleBuilder, BENQI_SELECTORS } from "../../../shared/bundle-builder";
 import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
-import { getMarketByQToken, getEnabledMarkets } from "../config/avax-lending-markets";
+import { getMarketByQToken } from "../config/avax-lending-markets";
 
 export interface PrepareSupplyRequest {
   userAddress:  string;
   qTokenAddress: string;
-  amount:       string; // in wei / base units (ignored for native AVAX — use amountAVAX)
+  amount:       string; // in wei / base units
 }
 
 export interface PrepareSupplyResponse {
@@ -25,48 +25,65 @@ export interface PrepareSupplyResponse {
   };
 }
 
-const LEND_IFACE = new ethers.Interface(PANORAMA_LEND_ABI);
-
 export async function executePrepareSupply(req: PrepareSupplyRequest): Promise<PrepareSupplyResponse> {
-  const chain    = getChainConfig("avalanche");
-  const lendAddr = chain.contracts.panoramaLend;
-  if (!lendAddr) throw new AppError("INTERNAL_ERROR", "PanoramaLend not deployed yet");
+  const chain        = getChainConfig("avalanche");
+  const executorAddr = chain.contracts.panoramaExecutor;
+  if (!executorAddr) throw new AppError("INTERNAL_ERROR", "PanoramaExecutor not deployed on Avalanche");
 
   const market = getMarketByQToken(req.qTokenAddress);
   if (!market) throw new AppError("POOL_NOT_FOUND", `Market not found for qToken: ${req.qTokenAddress}`);
 
-  const amount  = BigInt(req.amount);
+  const amount = BigInt(req.amount);
   if (amount <= 0n) throw new AppError("INVALID_AMOUNT", "amount must be positive");
 
-  const builder = new BundleBuilder(chain.chainId);
+  const protocolId = encodeProtocolId("benqi");
+  const builder    = new BundleBuilder(chain.chainId);
+  const deadline   = getDeadline(20);
 
   if (market.isNative) {
-    // supplyAVAX() payable — no approval needed
-    builder["steps"].push({
-      to:          lendAddr,
-      data:        LEND_IFACE.encodeFunctionData("supplyAVAX"),
-      value:       amount.toString(),
-      chainId:     chain.chainId,
-      description: `Supply ${ethers.formatEther(amount)} AVAX to Benqi via PanoramaLend`,
-    });
-  } else {
-    // approve underlying → PanoramaLend (if needed)
-    const allowance = await avaxService.checkAllowance(market.underlyingAddress!, req.userAddress, lendAddr, amount);
-    builder.addApproveIfNeeded(
-      market.underlyingAddress!,
-      lendAddr,
-      allowance,
-      amount,
-      `Approve ${market.underlyingSymbol} for PanoramaLend`
+    // supplyAVAX(address user) — native AVAX sent as msg.value
+    const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["address"],
+      [req.userAddress]
     );
 
-    builder["steps"].push({
-      to:          lendAddr,
-      data:        LEND_IFACE.encodeFunctionData("supply", [req.qTokenAddress, amount]),
-      value:       "0",
-      chainId:     chain.chainId,
-      description: `Supply ${market.underlyingSymbol} to Benqi via PanoramaLend`,
-    });
+    builder.addExecute(
+      protocolId,
+      BENQI_SELECTORS.SUPPLY_AVAX,
+      [],
+      deadline,
+      adapterData,
+      amount,
+      executorAddr,
+      `Supply ${ethers.formatEther(amount)} AVAX to Benqi`
+    );
+  } else {
+    // approve underlying → executor
+    const allowance = await avaxService.checkAllowance(market.underlyingAddress!, req.userAddress, executorAddr, amount);
+    builder.addApproveIfNeeded(
+      market.underlyingAddress!,
+      executorAddr,
+      allowance,
+      amount,
+      `Approve ${market.underlyingSymbol} for PanoramaExecutor`
+    );
+
+    // supply(address qToken, uint256 amount, address user)
+    const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["address", "uint256", "address"],
+      [req.qTokenAddress, amount, req.userAddress]
+    );
+
+    builder.addExecute(
+      protocolId,
+      BENQI_SELECTORS.SUPPLY,
+      [{ token: market.underlyingAddress!, amount }],
+      deadline,
+      adapterData,
+      0n,
+      executorAddr,
+      `Supply ${market.underlyingSymbol} to Benqi`
+    );
   }
 
   return {

@@ -1,9 +1,8 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../../../config/chains";
 import { avaxService, WAVAX } from "../../../shared/services/avax.service";
-import { applySlippage, getDeadline } from "../../../utils/encoding";
-import { PANORAMA_SWAP_ABI, ERC20_ABI } from "../../../utils/abi";
-import { BundleBuilder } from "../../../shared/bundle-builder";
+import { applySlippage, getDeadline, encodeProtocolId } from "../../../utils/encoding";
+import { BundleBuilder, TRADERJOE_SELECTORS } from "../../../shared/bundle-builder";
 import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
 
@@ -31,17 +30,14 @@ export interface PrepareAvaxSwapResponse {
   };
 }
 
-const PANORAMA_SWAP_IFACE = new ethers.Interface(PANORAMA_SWAP_ABI);
-const ERC20_IFACE         = new ethers.Interface([
-  "function approve(address spender, uint256 amount) external returns (bool)",
-]);
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export async function executePrepareAvaxSwap(
   req: PrepareAvaxSwapRequest
 ): Promise<PrepareAvaxSwapResponse> {
-  const chain     = getChainConfig("avalanche");
-  const swapAddr  = chain.contracts.panoramaSwap;
-  if (!swapAddr) throw new AppError("INTERNAL_ERROR", "PanoramaSwap not deployed yet");
+  const chain        = getChainConfig("avalanche");
+  const executorAddr = chain.contracts.panoramaExecutor;
+  if (!executorAddr) throw new AppError("INTERNAL_ERROR", "PanoramaExecutor not deployed on Avalanche");
 
   const amountIn      = BigInt(req.amountIn);
   const slippageBps   = req.slippageBps   ?? 50;
@@ -57,53 +53,52 @@ export async function executePrepareAvaxSwap(
   const isAvaxOut = req.tokenOut.toLowerCase() === WAVAX.toLowerCase();
   const swapType  = isAvaxIn ? "avax-to-token" : isAvaxOut ? "token-to-avax" : "token-to-token";
 
-  const builder = new BundleBuilder(chain.chainId);
+  const protocolId = encodeProtocolId("traderjoe");
+  const builder    = new BundleBuilder(chain.chainId);
 
-  if (!isAvaxIn) {
-    // Check and add approval for tokenIn → PanoramaSwap
-    const allowance = await avaxService.checkAllowance(req.tokenIn, req.userAddress, swapAddr, amountIn);
-    builder.addApproveIfNeeded(
-      req.tokenIn,
-      swapAddr,
-      allowance,
-      amountIn,
-      `Approve tokenIn for PanoramaSwap`
-    );
-  }
-
-  // Build swap calldata
-  let swapData: string;
+  // Transfers: executor pulls ERC-20 from user → proxy
+  const transfers: Array<{ token: string; amount: bigint }> = [];
   let ethValue = 0n;
 
   if (isAvaxIn) {
-    swapData = PANORAMA_SWAP_IFACE.encodeFunctionData("swapAVAXForTokens", [
-      amountOutMin, path, deadline,
-    ]);
+    // Native AVAX — sent as msg.value, no ERC-20 transfer
     ethValue = amountIn;
-  } else if (isAvaxOut) {
-    swapData = PANORAMA_SWAP_IFACE.encodeFunctionData("swapTokensForAVAX", [
-      amountIn, amountOutMin, path, deadline,
-    ]);
   } else {
-    swapData = PANORAMA_SWAP_IFACE.encodeFunctionData("swapTokensForTokens", [
-      amountIn, amountOutMin, path, deadline,
-    ]);
+    // ERC-20 — approve executor, then executor transfers to proxy
+    const allowance = await avaxService.checkAllowance(req.tokenIn, req.userAddress, executorAddr, amountIn);
+    builder.addApproveIfNeeded(
+      req.tokenIn,
+      executorAddr,
+      allowance,
+      amountIn,
+      `Approve tokenIn for PanoramaExecutor`
+    );
+    transfers.push({ token: req.tokenIn, amount: amountIn });
   }
 
-  builder["steps"].push({
-    to:          swapAddr,
-    data:        swapData,
-    value:       ethValue.toString(),
-    chainId:     chain.chainId,
-    description: `Swap via PanoramaSwap (${swapType})`,
-  });
+  // Adapter data — params of swapWithPath(uint256,uint256,address[],address) without selector
+  const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+    ["uint256", "uint256", "address[]", "address"],
+    [amountIn, amountOutMin, path, req.userAddress]
+  );
+
+  builder.addExecute(
+    protocolId,
+    TRADERJOE_SELECTORS.SWAP_WITH_PATH,
+    transfers,
+    deadline,
+    adapterData,
+    ethValue,
+    executorAddr,
+    `Swap via TraderJoe (${swapType})`
+  );
 
   const priceImpact = amountIn > 0n
     ? (100 - (Number(amountOut) / Number(amountIn)) * 100).toFixed(4)
     : "0";
 
   return {
-    bundle: builder.build(`Swap ${swapType} via PanoramaSwap on Avalanche`),
+    bundle: builder.build(`Swap ${swapType} via TraderJoe on Avalanche`),
     metadata: {
       tokenIn:      req.tokenIn,
       tokenOut:     req.tokenOut,

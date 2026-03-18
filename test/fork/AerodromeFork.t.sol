@@ -50,7 +50,7 @@ contract AerodromeForkTest is Test {
     // ========== SETUP ==========
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("BASE_RPC_URL"));
+        vm.createSelectFork("https://mainnet.base.org");
 
         executor = new PanoramaExecutor();
         adapter = new AerodromeAdapter(ROUTER, VOTER, address(executor));

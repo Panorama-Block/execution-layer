@@ -31,6 +31,11 @@ export interface PrepareAvaxSwapResponse {
 }
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const WAVAX_LOWER  = WAVAX.toLowerCase();
+
+// ABI mínimo para wrap (deposit) e unwrap (withdraw)
+const WAVAX_WRAP_ABI   = ["function deposit() external payable"];
+const WAVAX_UNWRAP_ABI = ["function withdraw(uint256 wad) external"];
 
 export async function executePrepareAvaxSwap(
   req: PrepareAvaxSwapRequest
@@ -39,11 +44,41 @@ export async function executePrepareAvaxSwap(
   const executorAddr = chain.contracts.panoramaExecutor;
   if (!executorAddr) throw new AppError("INTERNAL_ERROR", "PanoramaExecutor not deployed on Avalanche");
 
-  const amountIn      = BigInt(req.amountIn);
-  const slippageBps   = req.slippageBps   ?? 50;
-  const deadlineMins  = req.deadlineMinutes ?? 20;
+  const amountIn     = BigInt(req.amountIn);
+  const slippageBps  = req.slippageBps   ?? 50;
+  const deadlineMins = req.deadlineMinutes ?? 20;
 
   if (amountIn <= 0n) throw new AppError("INVALID_AMOUNT", "amountIn must be positive");
+
+  const tokenInLower  = req.tokenIn.toLowerCase();
+  const tokenOutLower = req.tokenOut.toLowerCase();
+
+  // ── Wrap: AVAX → WAVAX ──────────────────────────────────────────────
+  if (tokenInLower === WAVAX_LOWER && tokenOutLower === WAVAX_LOWER) {
+    const iface = new ethers.Interface(WAVAX_WRAP_ABI);
+    return {
+      bundle: {
+        steps: [{
+          to: WAVAX, data: iface.encodeFunctionData("deposit", []),
+          value: amountIn.toString(), chainId: chain.chainId,
+          description: "Wrap AVAX → WAVAX",
+        }],
+        totalSteps: 1,
+        summary: "Wrap AVAX → WAVAX",
+      },
+      metadata: {
+        tokenIn: req.tokenIn, tokenOut: req.tokenOut,
+        amountIn: amountIn.toString(), amountOut: amountIn.toString(),
+        amountOutMin: amountIn.toString(), path: [WAVAX],
+        swapType: "wrap", slippageBps, priceImpact: "0",
+      },
+    };
+  }
+
+  // ── Unwrap: WAVAX → AVAX ────────────────────────────────────────────
+  // tokenIn = WAVAX, tokenOut = zero/native (handled by frontend as WAVAX too,
+  // but kept here for completeness if called directly)
+  // (Covered by swap path if they differ — left for future use)
 
   const { amountOut, path } = await avaxService.getQuoteWithHop(req.tokenIn, req.tokenOut, amountIn);
   const amountOutMin        = applySlippage(amountOut, slippageBps);

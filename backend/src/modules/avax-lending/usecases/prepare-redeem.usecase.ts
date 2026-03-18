@@ -6,11 +6,13 @@ import { BundleBuilder, BENQI_SELECTORS } from "../../../shared/bundle-builder";
 import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
 import { getMarketByQToken } from "../config/avax-lending-markets";
+import { getContract } from "../../../providers/chain.provider";
+import { BENQI_TOKEN_ABI } from "../../../utils/abi";
 
 export interface PrepareRedeemRequest {
   userAddress:   string;
   qTokenAddress: string;
-  qTokenAmount:  string; // amount of qTokens to redeem
+  amount:        string; // underlying amount in wei (e.g. AVAX wei with 18 decimals)
 }
 
 export interface PrepareRedeemResponse {
@@ -33,8 +35,21 @@ export async function executePrepareRedeem(req: PrepareRedeemRequest): Promise<P
   const market = getMarketByQToken(req.qTokenAddress);
   if (!market) throw new AppError("POOL_NOT_FOUND", `Market not found for qToken: ${req.qTokenAddress}`);
 
-  const qTokenAmount = BigInt(req.qTokenAmount);
-  if (qTokenAmount <= 0n) throw new AppError("INVALID_AMOUNT", "qTokenAmount must be positive");
+  const underlyingAmount = BigInt(req.amount);
+  if (underlyingAmount <= 0n) throw new AppError("INVALID_AMOUNT", "amount must be positive");
+
+  // Convert underlying amount → qToken amount using Benqi's exchange rate.
+  // Formula (Compound-fork): qTokenAmount = underlyingWei * 1e18 / exchangeRate
+  const qTokenContract = getContract(req.qTokenAddress, BENQI_TOKEN_ABI, "avalanche");
+  const [exchangeRate, userQTokenBalance] = await Promise.all([
+    qTokenContract.exchangeRateStored() as Promise<bigint>,
+    qTokenContract.balanceOf(req.userAddress) as Promise<bigint>,
+  ]);
+
+  let qTokenAmount = (underlyingAmount * BigInt(1e18)) / exchangeRate;
+  // Cap at user's actual balance (handles rounding when user wants full withdrawal)
+  if (qTokenAmount > userQTokenBalance) qTokenAmount = userQTokenBalance;
+  if (qTokenAmount <= 0n) throw new AppError("INVALID_AMOUNT", "Derived qTokenAmount is zero — position may be empty");
 
   const protocolId = encodeProtocolId("benqi");
   const builder    = new BundleBuilder(chain.chainId);

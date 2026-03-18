@@ -45,10 +45,10 @@ avaxLendingRoutes.post(
  */
 avaxLendingRoutes.post(
   "/prepare-redeem",
-  validateRequired("userAddress", "qTokenAddress", "qTokenAmount"),
+  validateRequired("userAddress", "qTokenAddress", "amount"),
   validateAddress("userAddress"),
   validateAddress("qTokenAddress"),
-  validateAmount("qTokenAmount"),
+  validateAmount("amount"),
   ctrl.prepareRedeem
 );
 

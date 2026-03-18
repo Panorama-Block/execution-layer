@@ -55,11 +55,17 @@ export const getPosition = asyncHandler(async (req: Request, res: Response) => {
   const balanceAbi = ["function balanceOf(address) external view returns (uint256)"];
   const sAvaxToken = getContract(S_AVAX_ADDRESS, balanceAbi, "avalanche");
 
-  const [exchangeRate, sAvaxBalance, apy] = await Promise.all([
-    sAvaxContract.exchangeRateByRoundingDown() as Promise<bigint>,
+  const [totalPooledAvax, totalShares, sAvaxBalance, apy] = await Promise.all([
+    sAvaxContract.totalPooledAvax() as Promise<bigint>,
+    sAvaxContract.totalShares() as Promise<bigint>,
     sAvaxToken.balanceOf(userAddress) as Promise<bigint>,
     fetchSAvaxApr(),
   ]);
+
+  // exchangeRate = totalPooledAvax * 1e18 / totalShares  (same formula as the contract)
+  const exchangeRate = totalShares > 0n
+    ? (totalPooledAvax * BigInt(1e18)) / totalShares
+    : BigInt(1e18);
 
   res.json({
     userAddress,

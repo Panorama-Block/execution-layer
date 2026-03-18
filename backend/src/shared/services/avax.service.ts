@@ -55,8 +55,9 @@ class AvaxService {
 
   async getQuoteWithHop(tokenIn: string, tokenOut: string, amountIn: bigint): Promise<{ amountOut: bigint; path: string[] }> {
     return withRetry(() => withTimeout(async () => {
-      // Multi-hop via WAVAX
-      const path = tokenIn === WAVAX || tokenOut === WAVAX
+      // Multi-hop via WAVAX (case-insensitive comparison)
+      const wavaxLower = WAVAX.toLowerCase();
+      const path = tokenIn.toLowerCase() === wavaxLower || tokenOut.toLowerCase() === wavaxLower
         ? [tokenIn, tokenOut]
         : [tokenIn, WAVAX, tokenOut];
       const amounts: bigint[] = await this.router.getAmountsOut(amountIn, path);

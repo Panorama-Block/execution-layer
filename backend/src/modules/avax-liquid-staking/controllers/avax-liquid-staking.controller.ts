@@ -72,5 +72,6 @@ export const getPosition = asyncHandler(async (req: Request, res: Response) => {
     sAvaxBalance: sAvaxBalance.toString(),
     exchangeRate: exchangeRate.toString(),
     apy,
+    pendingUnlocks: [],
   });
 });

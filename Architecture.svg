@@ -1,0 +1,216 @@
+<svg width="1600" height="980" viewBox="0 0 1600 980" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">PanoramaBlock Execution Architecture</title>
+  <desc id="desc">Readable architecture diagram for frontend, backend, executor, beacons, proxies, adapters, and protocols.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1600" y2="980" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f5efe3"/>
+      <stop offset="100%" stop-color="#eef3f7"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-20%" y="-20%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+      <path d="M1 1 L10 6 L1 11" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+
+    <style>
+      .title { font: 700 34px Georgia, 'Times New Roman', serif; fill: #0f172a; }
+      .subtitle { font: 500 15px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #475569; }
+      .lane-title { font: 700 18px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #0f172a; }
+      .box-title { font: 700 16px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #0f172a; }
+      .body { font: 500 13px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #334155; }
+      .small { font: 500 12px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #475569; }
+      .tiny { font: 600 11px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #64748b; letter-spacing: 0.04em; text-transform: uppercase; }
+      .lane { stroke: #cbd5e1; stroke-width: 1.5; }
+      .flow { stroke: #334155; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-flow { stroke: #64748b; stroke-width: 2.2; fill: none; stroke-dasharray: 7 8; stroke-linecap: round; }
+      .chip-text { font: 700 11px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #0f172a; letter-spacing: 0.04em; text-transform: uppercase; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="980" fill="url(#bg)"/>
+
+  <!-- Header -->
+  <text x="64" y="64" class="title">PanoramaBlock Execution Layer</text>
+  <text x="64" y="92" class="subtitle">Unsigned bundle preparation off-chain, isolated protocol execution on-chain via per-user BeaconProxy instances</text>
+
+  <!-- Lanes -->
+  <rect x="56" y="132" width="1488" height="792" rx="28" fill="#ffffff" opacity="0.55"/>
+
+  <rect x="76" y="158" width="310" height="730" rx="24" fill="#fcfaf5" class="lane"/>
+  <rect x="406" y="158" width="420" height="730" rx="24" fill="#f7fafc" class="lane"/>
+  <rect x="846" y="158" width="320" height="730" rx="24" fill="#f9fbf8" class="lane"/>
+  <rect x="1186" y="158" width="338" height="730" rx="24" fill="#fbfafc" class="lane"/>
+
+  <text x="102" y="196" class="lane-title">1. Client Layer</text>
+  <text x="432" y="196" class="lane-title">2. Backend Layer</text>
+  <text x="872" y="196" class="lane-title">3. Execution Layer</text>
+  <text x="1212" y="196" class="lane-title">4. Protocol Layer</text>
+
+  <!-- Client -->
+  <g filter="url(#shadow)">
+    <rect x="102" y="230" width="258" height="146" rx="22" fill="#fffdf8" stroke="#d6c7a8" stroke-width="2"/>
+    <text x="126" y="262" class="box-title">Frontend / Mini-app</text>
+    <text x="126" y="290" class="body">Requests quotes and prepared bundles.</text>
+    <text x="126" y="313" class="body">User wallet signs each transaction locally.</text>
+    <text x="126" y="336" class="body">No private keys are held by the backend.</text>
+    <rect x="126" y="348" width="82" height="22" rx="11" fill="#efe6d0"/>
+    <text x="139" y="363" class="chip-text">Non-custodial</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="102" y="432" width="258" height="124" rx="22" fill="#fffdf8" stroke="#d6c7a8" stroke-width="2"/>
+    <text x="126" y="464" class="box-title">Wallet</text>
+    <text x="126" y="492" class="body">Approves ERC-20s when needed.</text>
+    <text x="126" y="515" class="body">Sends the signed transactions</text>
+    <text x="126" y="538" class="body">to the target chain.</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="102" y="618" width="258" height="158" rx="22" fill="#fffdf8" stroke="#d6c7a8" stroke-width="2"/>
+    <text x="126" y="650" class="box-title">User Products</text>
+    <text x="126" y="678" class="body">Swap</text>
+    <text x="126" y="701" class="body">Liquidity + Gauge Staking</text>
+    <text x="126" y="724" class="body">DCA Orders</text>
+    <text x="126" y="747" class="body">Avalanche Lending</text>
+    <text x="126" y="770" class="body">sAVAX Liquid Staking</text>
+  </g>
+
+  <!-- Backend -->
+  <g filter="url(#shadow)">
+    <rect x="432" y="230" width="368" height="150" rx="22" fill="#ffffff" stroke="#b9d3e6" stroke-width="2"/>
+    <text x="456" y="262" class="box-title">Express API</text>
+    <text x="456" y="290" class="body">Routes requests to product modules.</text>
+    <text x="456" y="313" class="body">Applies CORS, Helmet, rate limiting,</text>
+    <text x="456" y="336" class="body">and error handling.</text>
+    <rect x="456" y="348" width="88" height="22" rx="11" fill="#dfeef8"/>
+    <text x="470" y="363" class="chip-text">HTTP API</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="432" y="418" width="176" height="188" rx="22" fill="#ffffff" stroke="#b9d3e6" stroke-width="2"/>
+    <text x="454" y="450" class="box-title">Product Modules</text>
+    <text x="454" y="478" class="body">Base Swap</text>
+    <text x="454" y="501" class="body">Base Staking</text>
+    <text x="454" y="524" class="body">DCA</text>
+    <text x="454" y="547" class="body">AVAX Swap</text>
+    <text x="454" y="570" class="body">AVAX Lending</text>
+    <text x="454" y="593" class="body">AVAX sAVAX</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="624" y="418" width="176" height="188" rx="22" fill="#ffffff" stroke="#b9d3e6" stroke-width="2"/>
+    <text x="646" y="450" class="box-title">Shared Services</text>
+    <text x="646" y="478" class="body">AerodromeService</text>
+    <text x="646" y="501" class="body">AvaxService</text>
+    <text x="646" y="524" class="body">Protocol Registry</text>
+    <text x="646" y="547" class="body">Chain Config</text>
+    <text x="646" y="570" class="body">ABI Encoding</text>
+    <text x="646" y="593" class="body">Adapter Prediction</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="432" y="648" width="368" height="128" rx="22" fill="#ffffff" stroke="#b9d3e6" stroke-width="2"/>
+    <text x="456" y="680" class="box-title">BundleBuilder</text>
+    <text x="456" y="708" class="body">Builds ordered transaction bundles:</text>
+    <text x="456" y="731" class="body">approve → execute(protocolId, action, transfers, deadline, data)</text>
+    <rect x="456" y="742" width="110" height="22" rx="11" fill="#dfeef8"/>
+    <text x="470" y="757" class="chip-text">Unsigned TXs</text>
+  </g>
+
+  <!-- Execution -->
+  <g filter="url(#shadow)">
+    <rect x="872" y="230" width="268" height="190" rx="22" fill="#ffffff" stroke="#bfd9c3" stroke-width="2"/>
+    <text x="896" y="262" class="box-title">PanoramaExecutorV2</text>
+    <text x="896" y="290" class="body">Single generic entrypoint.</text>
+    <text x="896" y="313" class="body">Creates or reuses per-user proxy.</text>
+    <text x="896" y="336" class="body">Pulls ERC-20 transfers into proxy.</text>
+    <text x="896" y="359" class="body">Forwards selector + calldata.</text>
+    <rect x="896" y="380" width="114" height="22" rx="11" fill="#e1f0e2"/>
+    <text x="909" y="395" class="chip-text">Generic Core</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="872" y="454" width="268" height="144" rx="22" fill="#ffffff" stroke="#bfd9c3" stroke-width="2"/>
+    <text x="896" y="486" class="box-title">Upgradeable Beacons</text>
+    <text x="896" y="514" class="body">One beacon per protocol.</text>
+    <text x="896" y="537" class="body">Upgrading a beacon updates all</text>
+    <text x="896" y="560" class="body">user proxies for that protocol.</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="872" y="630" width="268" height="194" rx="22" fill="#ffffff" stroke="#bfd9c3" stroke-width="2"/>
+    <text x="896" y="662" class="box-title">Per-user BeaconProxy Clones</text>
+    <text x="896" y="690" class="body">User A / protocol X</text>
+    <text x="896" y="713" class="body">User B / protocol X</text>
+    <text x="896" y="736" class="body">User N / protocol Y</text>
+    <text x="896" y="770" class="body">Each proxy keeps isolated storage</text>
+    <text x="896" y="793" class="body">for positions, balances, and</text>
+    <text x="896" y="816" class="body">protocol-specific state.</text>
+  </g>
+
+  <!-- Protocol layer -->
+  <g filter="url(#shadow)">
+    <rect x="1212" y="230" width="286" height="170" rx="22" fill="#ffffff" stroke="#d7c8dc" stroke-width="2"/>
+    <text x="1236" y="262" class="box-title">Adapters</text>
+    <text x="1236" y="290" class="body">AerodromeAdapterV2</text>
+    <text x="1236" y="313" class="body">TraderJoeAdapter</text>
+    <text x="1236" y="336" class="body">BenqiLendAdapter</text>
+    <text x="1236" y="359" class="body">SAVAXAdapter</text>
+    <rect x="1236" y="370" width="96" height="22" rx="11" fill="#efe3f4"/>
+    <text x="1249" y="385" class="chip-text">Only Executor</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="1212" y="438" width="286" height="202" rx="22" fill="#ffffff" stroke="#d7c8dc" stroke-width="2"/>
+    <text x="1236" y="470" class="box-title">Protocols</text>
+    <text x="1236" y="498" class="body">Base</text>
+    <text x="1268" y="498" class="body">Aerodrome Finance</text>
+    <text x="1236" y="528" class="body">Avalanche</text>
+    <text x="1318" y="528" class="body">Trader Joe V1</text>
+    <text x="1318" y="551" class="body">Benqi Finance</text>
+    <text x="1318" y="574" class="body">BENQI sAVAX</text>
+    <text x="1236" y="608" class="small">Adapters translate generic execute calls</text>
+    <text x="1236" y="629" class="small">into protocol-specific behavior.</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="1212" y="678" width="286" height="146" rx="22" fill="#ffffff" stroke="#d7c8dc" stroke-width="2"/>
+    <text x="1236" y="710" class="box-title">DCA Special Path</text>
+    <text x="1236" y="738" class="body">DCAVault stores user deposits.</text>
+    <text x="1236" y="761" class="body">Authorized operator calls</text>
+    <text x="1236" y="784" class="body">executeSwapFor in user context.</text>
+  </g>
+
+  <!-- Main vertical flow -->
+  <path d="M360 303 C395 303, 398 303, 432 303" class="flow"/>
+  <path d="M800 712 C836 712, 838 712, 872 712" class="flow"/>
+  <path d="M1140 726 C1170 726, 1178 726, 1212 726" class="flow"/>
+
+  <!-- Backend internal flow -->
+  <path d="M520 380 L520 418" class="flow"/>
+  <path d="M712 380 L712 418" class="flow"/>
+  <path d="M608 512 C620 512, 624 512, 624 512" class="flow"/>
+  <path d="M712 606 L712 648" class="flow"/>
+
+  <!-- Execution internal flow -->
+  <path d="M1006 420 L1006 454" class="flow"/>
+  <path d="M1006 598 L1006 630" class="flow"/>
+
+  <!-- Proxy to adapter -->
+  <path d="M1140 726 C1186 726, 1186 315, 1212 315" class="flow"/>
+
+  <!-- Client to wallet -->
+  <path d="M231 376 L231 432" class="flow"/>
+
+  <!-- Wallet to on-chain -->
+  <path d="M231 556 C231 640, 330 712, 432 712" class="soft-flow"/>
+  <text x="255" y="592" class="small">signed transactions</text>
+
+  <!-- Notes -->
+  <rect x="76" y="906" width="1468" height="36" rx="18" fill="#fffdf8" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="100" y="929" class="small">Reading order: left to right. Warm tones = user-facing components, blue = backend preparation, green = generic on-chain execution, violet = protocol-specific logic.</text>
+</svg>

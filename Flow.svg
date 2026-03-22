@@ -1,0 +1,183 @@
+<svg width="1680" height="980" viewBox="0 0 1680 980" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">PanoramaBlock Sequence Flow</title>
+  <desc id="desc">Sequence-style architecture showing client request, backend bundle creation, wallet signing, executor dispatch, proxy routing, and adapter execution.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1680" y2="980" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f6f1e7"/>
+      <stop offset="100%" stop-color="#eef4f8"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-20%" y="-20%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+      <path d="M1 1 L10 6 L1 11" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+
+    <style>
+      .title { font: 700 34px Georgia, 'Times New Roman', serif; fill: #0f172a; }
+      .subtitle { font: 500 15px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #475569; }
+      .actor-title { font: 700 15px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #0f172a; }
+      .actor-sub { font: 500 12px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #475569; }
+      .step { font: 600 13px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #0f172a; }
+      .small { font: 500 12px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #475569; }
+      .tiny { font: 700 11px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #64748b; letter-spacing: 0.05em; text-transform: uppercase; }
+      .flow { stroke: #334155; stroke-width: 2.8; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .return { stroke: #64748b; stroke-width: 2.1; fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 7 8; marker-end: url(#arrow); }
+      .life { stroke: #94a3b8; stroke-width: 2; stroke-dasharray: 7 10; }
+      .activation { fill: #ffffff; stroke: #334155; stroke-width: 1.5; rx: 10; }
+      .note { fill: #fffdf8; stroke: #d6c7a8; stroke-width: 1.2; rx: 14; }
+      .panel { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.4; rx: 22; }
+      .badge { font: 700 11px 'Avenir Next', 'Trebuchet MS', Verdana, sans-serif; fill: #0f172a; letter-spacing: 0.04em; text-transform: uppercase; }
+    </style>
+  </defs>
+
+  <rect width="1680" height="980" fill="url(#bg)"/>
+
+  <text x="62" y="60" class="title">Request to Execution Sequence</text>
+  <text x="62" y="88" class="subtitle">Client asks for a prepared action, backend builds unsigned transactions, wallet signs, executor dispatches into the user adapter</text>
+
+  <!-- Main panel -->
+  <rect x="42" y="118" width="1596" height="812" class="panel" fill-opacity="0.65"/>
+
+  <!-- Actors -->
+  <g filter="url(#shadow)">
+    <rect x="70" y="146" width="170" height="78" rx="18" fill="#fffaf0" stroke="#d6c7a8" stroke-width="2"/>
+    <text x="98" y="178" class="actor-title">Client App</text>
+    <text x="98" y="199" class="actor-sub">UI / mini-app</text>
+
+    <rect x="308" y="146" width="190" height="78" rx="18" fill="#f8fbfe" stroke="#b8d4e8" stroke-width="2"/>
+    <text x="336" y="178" class="actor-title">Backend API</text>
+    <text x="336" y="199" class="actor-sub">quote + bundle builder</text>
+
+    <rect x="568" y="146" width="170" height="78" rx="18" fill="#fffaf0" stroke="#d6c7a8" stroke-width="2"/>
+    <text x="596" y="178" class="actor-title">Wallet</text>
+    <text x="596" y="199" class="actor-sub">signer</text>
+
+    <rect x="808" y="146" width="210" height="78" rx="18" fill="#f8fcf8" stroke="#bfd9c3" stroke-width="2"/>
+    <text x="836" y="178" class="actor-title">PanoramaExecutorV2</text>
+    <text x="836" y="199" class="actor-sub">generic entrypoint</text>
+
+    <rect x="1098" y="146" width="185" height="78" rx="18" fill="#f8fcf8" stroke="#bfd9c3" stroke-width="2"/>
+    <text x="1126" y="178" class="actor-title">User Proxy</text>
+    <text x="1126" y="199" class="actor-sub">BeaconProxy</text>
+
+    <rect x="1363" y="146" width="190" height="78" rx="18" fill="#fcf9fd" stroke="#d9c6df" stroke-width="2"/>
+    <text x="1391" y="178" class="actor-title">Protocol Adapter</text>
+    <text x="1391" y="199" class="actor-sub">swap / stake / lend</text>
+  </g>
+
+  <!-- Lifelines -->
+  <line x1="155" y1="224" x2="155" y2="884" class="life"/>
+  <line x1="403" y1="224" x2="403" y2="884" class="life"/>
+  <line x1="653" y1="224" x2="653" y2="884" class="life"/>
+  <line x1="913" y1="224" x2="913" y2="884" class="life"/>
+  <line x1="1190" y1="224" x2="1190" y2="884" class="life"/>
+  <line x1="1458" y1="224" x2="1458" y2="884" class="life"/>
+
+  <!-- Activations -->
+  <rect x="394" y="282" width="18" height="192" class="activation"/>
+  <rect x="644" y="490" width="18" height="170" class="activation"/>
+  <rect x="904" y="692" width="18" height="126" class="activation"/>
+  <rect x="1181" y="736" width="18" height="82" class="activation"/>
+  <rect x="1449" y="756" width="18" height="62" class="activation"/>
+
+  <!-- Step labels -->
+  <text x="58" y="274" class="tiny">Phase 1</text>
+  <text x="58" y="482" class="tiny">Phase 2</text>
+  <text x="58" y="684" class="tiny">Phase 3</text>
+
+  <!-- Flow 1 -->
+  <path d="M155 302 H403" class="flow"/>
+  <text x="213" y="292" class="step">1. Request quote / prepared action</text>
+  <text x="213" y="315" class="small">Example: swap, staking, DCA, lending</text>
+
+  <path d="M403 352 H155" class="return"/>
+  <text x="200" y="344" class="small">2. Quote, metadata, available routes</text>
+
+  <path d="M155 406 H403" class="flow"/>
+  <text x="222" y="397" class="step">3. Request executable bundle</text>
+
+  <path d="M403 454 H155" class="return"/>
+  <text x="182" y="445" class="step">4. Return unsigned TransactionBundle</text>
+  <text x="182" y="467" class="small">approve steps + execute step + summary</text>
+
+  <!-- Note backend -->
+  <rect x="286" y="520" width="236" height="94" class="note"/>
+  <text x="304" y="547" class="tiny">Backend Work</text>
+  <text x="304" y="571" class="small">Reads allowances, balances, quotes,</text>
+  <text x="304" y="592" class="small">pool state, deadlines, slippage,</text>
+  <text x="304" y="613" class="small">then ABI-encodes adapter calldata.</text>
+
+  <!-- Flow 2 -->
+  <path d="M155 528 H653" class="flow"/>
+  <text x="291" y="519" class="step">5. Hand bundle to wallet</text>
+
+  <path d="M653 584 H653" class="flow"/>
+  <text x="671" y="580" class="step">6. User reviews and signs</text>
+  <text x="671" y="602" class="small">approve token</text>
+  <text x="671" y="621" class="small">then execute(...)</text>
+
+  <path d="M653 646 H913" class="flow"/>
+  <text x="716" y="637" class="step">7. Broadcast signed execute transaction</text>
+
+  <!-- Note wallet -->
+  <rect x="522" y="694" width="262" height="78" class="note"/>
+  <text x="540" y="721" class="tiny">Trust Boundary</text>
+  <text x="540" y="745" class="small">The backend prepares calldata,</text>
+  <text x="540" y="766" class="small">but the wallet remains the signer.</text>
+
+  <!-- Flow 3 -->
+  <path d="M913 726 H1190" class="flow"/>
+  <text x="970" y="717" class="step">8. Resolve or create user proxy</text>
+
+  <path d="M913 766 H1190" class="flow"/>
+  <text x="950" y="757" class="step">9. Transfer approved ERC-20 inputs into proxy</text>
+
+  <path d="M1190 788 H1458" class="flow"/>
+  <text x="1266" y="779" class="step">10. Forward selector + encoded params</text>
+
+  <path d="M1458 834 H1190" class="return"/>
+  <text x="1262" y="826" class="small">11. Adapter executes protocol action</text>
+
+  <path d="M1190 854 H913" class="return"/>
+  <text x="994" y="847" class="small">12. Raw bytes result bubbles back</text>
+
+  <!-- Notes right side -->
+  <rect x="1294" y="420" width="288" height="122" class="note"/>
+  <text x="1312" y="447" class="tiny">Adapter Examples</text>
+  <text x="1312" y="471" class="small">swap(tokenIn, tokenOut, ...)</text>
+  <text x="1312" y="492" class="small">stake(lpToken, amount, gauge)</text>
+  <text x="1312" y="513" class="small">borrow(qToken, amount, recipient)</text>
+
+  <rect x="1040" y="566" width="258" height="102" class="note"/>
+  <text x="1058" y="593" class="tiny">Proxy Purpose</text>
+  <text x="1058" y="617" class="small">Each user gets isolated protocol state.</text>
+  <text x="1058" y="638" class="small">Beacon controls implementation,</text>
+  <text x="1058" y="659" class="small">proxy holds per-user storage.</text>
+
+  <rect x="820" y="286" width="240" height="108" class="note"/>
+  <text x="838" y="313" class="tiny">Executor Role</text>
+  <text x="838" y="337" class="small">No action-specific business logic.</text>
+  <text x="838" y="358" class="small">It only routes and transfers.</text>
+  <text x="838" y="379" class="small">Semantics live inside adapters.</text>
+
+  <!-- Top badges -->
+  <rect x="70" y="108" width="122" height="24" rx="12" fill="#efe6d0"/>
+  <text x="91" y="124" class="badge">User Side</text>
+
+  <rect x="308" y="108" width="138" height="24" rx="12" fill="#dfeef8"/>
+  <text x="329" y="124" class="badge">Preparation</text>
+
+  <rect x="808" y="108" width="126" height="24" rx="12" fill="#e1f0e2"/>
+  <text x="829" y="124" class="badge">On-chain Core</text>
+
+  <rect x="1363" y="108" width="132" height="24" rx="12" fill="#efe3f4"/>
+  <text x="1385" y="124" class="badge">Protocol Logic</text>
+
+  <!-- Footer -->
+  <rect x="66" y="900" width="1548" height="28" rx="14" fill="#fffdf8" stroke="#cbd5e1" stroke-width="1.1"/>
+  <text x="88" y="919" class="small">Reading rule: solid arrows are forward execution steps, dashed arrows are responses. The backend prepares but does not sign. The executor routes but does not interpret protocol semantics.</text>
+</svg>

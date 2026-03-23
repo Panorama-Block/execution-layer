@@ -122,7 +122,10 @@ export async function executeExitStrategy(
       amountBMin = applySlippage(proportionalB, slippageBps);
     }
   } catch (e) {
-    console.warn("[EXIT] Could not compute min amounts from reserves, using 0:", e instanceof Error ? e.message : e);
+    throw new Error(
+      `Failed to fetch pool reserves for slippage calculation. Please try again. ` +
+      `(${e instanceof Error ? e.message : String(e)})`
+    );
   }
 
   // Step 3 - Remove Liquidity via PanoramaExecutor

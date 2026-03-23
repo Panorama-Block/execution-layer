@@ -111,8 +111,12 @@ export async function buildAerodromeAddLiquidityBundle(
     "Approve LP token"
   );
 
-  // stake
-  const safeStakeAmount = applySlippage(estimatedLiquidity, slippageBps);
+  // stake — apply slippage twice to create a safety margin between the LP
+  // amount quoted at prepare-time and the actual LP minted at execute-time.
+  // Single slippage (1%) fails when pool moves >1% in the ~30-60s between
+  // prepare and execute. Double slippage (2×) widens the safe window while
+  // still failing fast if the amount is grossly insufficient.
+  const safeStakeAmount = applySlippage(applySlippage(estimatedLiquidity, slippageBps), slippageBps);
   const stakeData = ethers.AbiCoder.defaultAbiCoder().encode(
     ["address", "uint256", "address"],
     [poolAddress, safeStakeAmount, gaugeAddress]
@@ -121,7 +125,7 @@ export async function buildAerodromeAddLiquidityBundle(
   builder.addExecute(
     protocolId, ADAPTER_SELECTORS.STAKE,
     [{ token: poolAddress, amount: safeStakeAmount }], deadline, stakeData, 0n,
-    executorAddress, `Stake ${estimatedLiquidity.toString()} LP tokens in gauge`
+    executorAddress, `Stake LP tokens in ${poolName} gauge`
   );
 
   return builder;

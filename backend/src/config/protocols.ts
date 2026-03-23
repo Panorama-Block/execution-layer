@@ -87,7 +87,7 @@ export function listProtocols(): string[] {
 const adapterCache      = new Map<string, { value: string; expiresAt: number }>();
 const adapterInFlight   = new Map<string, Promise<string>>();
 const ADAPTER_TTL_MS    = 10 * 60 * 1000;
-const EMPTY_TTL_MS      = 30 * 1000;
+const EMPTY_TTL_MS      = 5 * 1000;
 const LOOKUP_TIMEOUT_MS = 3500;
 
 function withTimeout<T>(fn: () => Promise<T>, ms = LOOKUP_TIMEOUT_MS): Promise<T> {

@@ -90,10 +90,10 @@ export async function executeGetPortfolio(userAddress: string): Promise<GetPortf
     const { pool, poolAddress, gaugeAddress } = result!;
     try {
       const totalStaked = userAdapter
-        ? await aerodromeService.safeBigInt(() => aerodromeService.getStakedBalance(gaugeAddress, userAdapter))
+        ? await aerodromeService.withRetry(() => aerodromeService.getStakedBalance(gaugeAddress, userAdapter), 2, 300).catch(() => 0n)
         : 0n;
       const totalEarned = userAdapter
-        ? await aerodromeService.safeBigInt(() => aerodromeService.getEarnedRewards(gaugeAddress, userAdapter))
+        ? await aerodromeService.withRetry(() => aerodromeService.getEarnedRewards(gaugeAddress, userAdapter), 2, 300).catch(() => 0n)
         : 0n;
 
       console.log(`[PORTFOLIO] ${pool.name}: staked=${totalStaked}, earned=${totalEarned}`);
@@ -102,9 +102,16 @@ export async function executeGetPortfolio(userAddress: string): Promise<GetPortf
         const poolContract = getContract(poolAddress, POOL_ABI, "base");
         let reserveA = 0n, reserveB = 0n, totalSupply = 0n;
         try {
-          [reserveA, reserveB] = await aerodromeService.withTimeout(() => poolContract.getReserves() as Promise<[bigint, bigint]>);
           const lpToken = getContract(poolAddress, ERC20_ABI, "base");
-          totalSupply = await aerodromeService.withTimeout(() => lpToken.totalSupply() as Promise<bigint>);
+          const [[reserve0, reserve1], supply, token0] = await Promise.all([
+            aerodromeService.withTimeout(() => poolContract.getReserves() as Promise<[bigint, bigint]>),
+            aerodromeService.withTimeout(() => lpToken.totalSupply() as Promise<bigint>),
+            aerodromeService.withTimeout(() => poolContract.token0() as Promise<string>),
+          ]);
+          totalSupply = supply;
+          const isTokenAFirst = pool.tokenA.address.toLowerCase() === token0.toLowerCase();
+          reserveA = isTokenAFirst ? reserve0 : reserve1;
+          reserveB = isTokenAFirst ? reserve1 : reserve0;
         } catch { /* skip reserve calc */ }
 
         let balA = "0", balB = "0";

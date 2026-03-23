@@ -67,9 +67,8 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
   console.log("[PROTOCOL-INFO] Cache miss — fetching fresh data from on-chain...");
   const enabledPools = getEnabledStakingPools();
   console.log("[PROTOCOL-INFO] Enabled pools:", enabledPools.map(p => p.name).join(", "));
-  const pools: PoolInfo[] = [];
 
-  for (const pool of enabledPools) {
+  const poolResults = await Promise.all(enabledPools.map(async (pool): Promise<PoolInfo | null> => {
     try {
       console.log(`[PROTOCOL-INFO] Processing pool: ${pool.name}`);
       const { poolAddress, gaugeAddress } = await aerodromeService.withRetry(() =>
@@ -79,34 +78,31 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
 
       const gauge = getContract(gaugeAddress, GAUGE_ABI, "base");
 
-      let rewardRate = 0n;
-      let totalStaked = 0n;
-      try {
-        rewardRate = await aerodromeService.withRetry(() => gauge.rewardRate());
-        console.log(`[PROTOCOL-INFO]   rewardRate=${rewardRate.toString()}`);
-      } catch (e) {
-        console.error(`[PROTOCOL-INFO]   rewardRate FAILED:`, e instanceof Error ? e.message : e);
-      }
-      try {
-        totalStaked = await aerodromeService.withRetry(() => gauge.totalSupply());
-        console.log(`[PROTOCOL-INFO]   totalStaked=${totalStaked.toString()}`);
-      } catch (e) {
-        console.error(`[PROTOCOL-INFO]   totalSupply FAILED:`, e instanceof Error ? e.message : e);
-      }
+      const feeRate = pool.stable ? 0.0001 : 0.003; // 1bp stable, 30bp volatile
+
+      // Run gauge calls and DexScreener in parallel
+      const [rewardRate, totalStaked, dexMetrics] = await Promise.all([
+        aerodromeService.withRetry(() => gauge.rewardRate() as Promise<bigint>).catch((e) => {
+          console.error(`[PROTOCOL-INFO]   rewardRate FAILED:`, e instanceof Error ? e.message : e);
+          return 0n;
+        }),
+        aerodromeService.withRetry(() => gauge.totalSupply() as Promise<bigint>).catch((e) => {
+          console.error(`[PROTOCOL-INFO]   totalSupply FAILED:`, e instanceof Error ? e.message : e);
+          return 0n;
+        }),
+        fetchDexScreenerMetrics(poolAddress, feeRate),
+      ]);
+
+      console.log(`[PROTOCOL-INFO]   rewardRate=${rewardRate.toString()}, totalStaked=${totalStaked.toString()}`);
 
       let estimatedAPR = "0";
       let aprSource = "unavailable";
       let totalLiquidityUsd: string | null = null;
 
-      const feeRate    = pool.stable ? 0.0001 : 0.003; // 1bp stable, 30bp volatile
-      const dexMetrics = await fetchDexScreenerMetrics(poolAddress, feeRate);
-
       if (dexMetrics.tvlUsd != null && Number.isFinite(dexMetrics.tvlUsd)) {
         totalLiquidityUsd = dexMetrics.tvlUsd.toFixed(2);
       }
 
-      // Use DexScreener fee APR as the primary source — it is based on real 24h
-      // trading volume and is more reliable than on-chain gauge reward math.
       if (dexMetrics.feeAPR) {
         estimatedAPR = dexMetrics.feeAPR.replace("%", "");
         aprSource    = "DexScreener fee APR (24h volume × fee rate × 365 / TVL)";
@@ -118,7 +114,7 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
         console.log(`[PROTOCOL-INFO]   totalLiquidityUsd=$${totalLiquidityUsd}`);
       }
 
-      pools.push({
+      return {
         poolId: pool.id,
         poolName: pool.name,
         poolAddress,
@@ -130,11 +126,14 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
         aprSource,
         aprDisclaimer: "Fee APR estimate only. Does not include AERO gauge rewards. Past performance is not indicative of future results.",
         totalLiquidityUsd,
-      });
+      };
     } catch (err) {
       console.error(`[PROTOCOL-INFO] Pool ${pool.name} FAILED entirely:`, err instanceof Error ? err.message : err);
+      return null;
     }
-  }
+  }));
+
+  const pools = poolResults.filter((p): p is PoolInfo => p !== null);
 
   console.log(`[PROTOCOL-INFO] Done. ${pools.length} pools resolved. APRs: ${pools.map(p => `${p.poolName}=${p.estimatedAPR}`).join(", ")}`);
 

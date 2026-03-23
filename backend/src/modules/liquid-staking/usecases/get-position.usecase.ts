@@ -11,6 +11,7 @@ interface StakingPosition {
   tokenB: { symbol: string; address: string; decimals: number };
   stable: boolean;
   stakedBalance: string;
+  walletLpBalance: string;
   earnedRewards: string;
   rewardToken: { symbol: string; address: string; decimals: number };
 }
@@ -50,24 +51,32 @@ export async function executeGetPosition(
 
   console.log(`[POSITIONS] user=${req.userAddress}, adapter=${userAdapter}, pools=${enabledPools.length}`);
 
-  // Fetch staking positions in parallel
+  // Fetch staking positions sequentially within each pool to avoid RPC rate limiting.
+  // All pools still run in parallel (outer Promise.all), but within each pool the three
+  // calls are awaited one-by-one, reducing peak concurrency from 21→7 simultaneous calls.
   const results = await Promise.all(
     poolResults.filter(Boolean).map(async (result): Promise<StakingPosition | null> => {
       const { pool, poolAddress, gaugeAddress } = result!;
       try {
-        const [stakedBalance, earnedRewards] = await Promise.all([
-          userAdapter ? aerodromeService.safeBigInt(() => aerodromeService.getStakedBalance(gaugeAddress, userAdapter)) : Promise.resolve(0n),
-          userAdapter ? aerodromeService.safeBigInt(() => aerodromeService.getEarnedRewards(gaugeAddress, userAdapter)) : Promise.resolve(0n),
-        ]);
+        const stakedBalance = userAdapter
+          ? await aerodromeService.withRetry(() => aerodromeService.getStakedBalance(gaugeAddress, userAdapter), 2, 300).catch(() => 0n)
+          : 0n;
+        const earnedRewards = userAdapter
+          ? await aerodromeService.withRetry(() => aerodromeService.getEarnedRewards(gaugeAddress, userAdapter), 2, 300).catch(() => 0n)
+          : 0n;
+        const walletLpBalance = await aerodromeService
+          .getTokenBalance(poolAddress, req.userAddress)
+          .catch(() => 0n);
 
-        console.log(`[POSITIONS] ${pool.name}: staked=${stakedBalance}, earned=${earnedRewards}`);
+        console.log(`[POSITIONS] ${pool.name}: staked=${stakedBalance}, earned=${earnedRewards}, walletLp=${walletLpBalance}`);
 
-        if (stakedBalance > 0n || earnedRewards > 0n) {
+        if (stakedBalance > 0n || earnedRewards > 0n || walletLpBalance > 0n) {
           return {
             poolId: pool.id, poolName: pool.name, poolAddress, gaugeAddress,
             tokenA: pool.tokenA, tokenB: pool.tokenB, stable: pool.stable,
             stakedBalance: stakedBalance.toString(),
             earnedRewards: earnedRewards.toString(),
+            walletLpBalance: walletLpBalance.toString(),
             rewardToken: pool.rewardToken,
           };
         }

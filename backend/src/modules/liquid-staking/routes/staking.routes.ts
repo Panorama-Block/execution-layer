@@ -60,10 +60,9 @@ stakingRoutes.post("/prepare-claim",
 
 // Transaction management
 stakingRoutes.post("/transaction/submit",
-  validateRequired("txHash", "userAddress", "signature", "timestamp"),
+  validateRequired("txHash", "userAddress"),
   validateTxHash("txHash"),
   validateAddress("userAddress"),
-  requireWalletAuth,
   asyncHandler(submitTx)
 );
 

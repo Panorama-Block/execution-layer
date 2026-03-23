@@ -15,6 +15,7 @@ import { avaxLendingRoutes }         from "./modules/avax-lending/routes/avax-le
 import { avaxLiquidStakingRoutes }   from "./modules/avax-liquid-staking/routes/avax-liquid-staking.routes";
 import { errorHandler }              from "./middleware/errorHandler";
 import { rateLimiter } from "./middleware/rateLimiter";
+import { serializeByUser } from "./middleware/serialize-by-user";
 
 const app = express();
 const PORT = process.env.PORT || 3010;
@@ -42,6 +43,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "1mb" }));
 app.use(rateLimiter);
+app.use(serializeByUser);
 
 // Swagger only in non-production environments
 if (process.env.NODE_ENV !== "production") {

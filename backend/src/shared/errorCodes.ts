@@ -25,7 +25,8 @@ export const ErrorCodes = {
 
   // Server errors (500)
   INTERNAL_ERROR: { code: "INTERNAL_ERROR", status: 500, message: "Internal server error" },
-  RPC_ERROR: { code: "RPC_ERROR", status: 502, message: "Blockchain RPC call failed" },
+  RPC_ERROR: { code: "RPC_ERROR", status: 503, message: "Blockchain RPC call failed" },
+  RPC_UNAVAILABLE: { code: "RPC_UNAVAILABLE", status: 503, message: "Blockchain node temporarily unavailable. Please retry." },
   PROVIDER_ERROR: { code: "PROVIDER_ERROR", status: 502, message: "External provider error" },
 } as const;
 

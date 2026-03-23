@@ -15,45 +15,11 @@ Non-custodial, **upgradeable** DeFi execution infrastructure for **Base** and **
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Frontend / Mini-app                        │
-│             (connects wallet, signs transactions)             │
-└─────────────────────────┬───────────────────────────────────┘
-                          │ HTTP
-┌─────────────────────────▼───────────────────────────────────┐
-│                   Backend (Express + TypeScript)               │
-│                                                               │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐   │
-│  │  Swap    │ │ Staking  │ │   DCA    │ │   Lending     │   │
-│  │  Base    │ │  Base    │ │  Base    │ │  Avalanche    │   │
-│  └──────────┘ └──────────┘ └──────────┘ └───────────────┘   │
-│  ┌──────────┐ ┌──────────────────┐                           │
-│  │  Swap    │ │ Liquid Staking   │                           │
-│  │ Avalanche│ │ Avalanche (sAVAX)│                           │
-│  └──────────┘ └──────────────────┘                           │
-│         │            │          │            │                │
-│         └────────────▼──────────▼────────────┘                │
-│                 BundleBuilder (shared)                         │
-│           Prepares unsigned transaction bundles                │
-└─────────────────────────┬───────────────────────────────────┘
-                          │ On-chain
-┌─────────────────────────▼───────────────────────────────────┐
-│      PanoramaExecutorV2 (deployed per chain)                  │
-│   execute(protocolId, action, transfers, deadline, data)      │
-│                                                               │
-│   ┌─────────────────────────────────────────────────────┐    │
-│   │ UpgradeableBeacon (per protocol)                     │    │
-│   │   beacon.upgradeTo(newImpl) → upgrades ALL users     │    │
-│   └──────────────────────┬──────────────────────────────┘    │
-│                          │                                    │
-│   ┌──────────────────────▼──────────────────────────────┐    │
-│   │ BeaconProxy A │ BeaconProxy B │ ... │ BeaconProxy N │    │
-│   │ (user 1)      │ (user 2)      │     │ (user N)      │    │
-│   │ isolated       │ isolated       │     │ isolated       │    │
-│   └─────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-```
+![Architecture](Architecture.svg)
+
+### Execution Flow
+
+![Flow](Flow.svg)
 
 ### How It Works
 
@@ -66,14 +32,20 @@ Non-custodial, **upgradeable** DeFi execution infrastructure for **Base** and **
 
 > **The backend never holds private keys.** It only prepares unsigned calldata.
 
-### Upgradeable (BeaconProxy)
+### Upgradeable (BeaconProxy + UUPS)
 
-All adapters use OpenZeppelin's **BeaconProxy** pattern:
+**Adapters** use OpenZeppelin's **BeaconProxy** pattern:
 - Each protocol has an `UpgradeableBeacon` storing the current adapter implementation
 - Each user gets a `BeaconProxy` that delegates all calls to the beacon's implementation
 - **To upgrade**: `beacon.upgradeTo(newImplAddress)` — updates ALL user proxies at once
 - Adapters use `Initializable` + `__gap[50]` for safe storage across upgrades
 - Zero downtime, zero user migration needed
+
+**DCAVault** uses **UUPS Proxy** (ERC1967Proxy + UUPSUpgradeable):
+- Singleton vault deployed behind a proxy — storage persists across upgrades
+- `vault.upgradeToAndCall(newImpl, "")` — zero order migration
+- `__gap[40]` reserved for future state variables
+- All admin changes (keeper, executor, owner) require **1-day delay** + acceptance by proposed address
 
 ### Protocol-Neutral Executor
 
@@ -111,7 +83,8 @@ This means:
 | PanoramaExecutorV2 | [`0x7528861E7DD09dc9B1e5149542e897d984Ceda7f`](https://basescan.org/address/0x7528861E7DD09dc9B1e5149542e897d984Ceda7f) |
 | Aerodrome UpgradeableBeacon | [`0xC8649c9F6F590f20Ab477c0F7e2516CF287E6899`](https://basescan.org/address/0xC8649c9F6F590f20Ab477c0F7e2516CF287E6899) |
 | AerodromeAdapterV2 (impl) | [`0x5921371c5071A968d431a06ce7Fc20b868D38E31`](https://basescan.org/address/0x5921371c5071A968d431a06ce7Fc20b868D38E31) |
-| DCAVault | [`0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1`](https://basescan.org/address/0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1) |
+| DCAVault (V1, non-upgradeable) | [`0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1`](https://basescan.org/address/0x155eC4256cC6f11f3d4C21Af28a2a1CC31f730d1) |
+| DCAVault (V2, UUPS Proxy) | Pending redeployment |
 
 ### Avalanche C-Chain (43114)
 
@@ -232,12 +205,27 @@ forge script script/DeployV2.s.sol:DeployV2 --rpc-url $BASE_RPC_URL --broadcast
 forge script script/avax/DeployAvaxV2.s.sol:DeployAvaxV2 --rpc-url $AVAX_RPC_URL --broadcast
 ```
 
+### Deploy DCAVault (UUPS Proxy)
+
+```bash
+source .env
+forge script script/DeployDCAVault.s.sol:DeployDCAVault --rpc-url $BASE_RPC_URL --broadcast
+```
+
 ### Upgrade an Adapter
 
 ```bash
 # Deploy new implementation, then call:
 beacon.upgradeTo(newImplAddress)
 # All user proxies are updated instantly — zero migration needed.
+```
+
+### Upgrade DCAVault
+
+```bash
+# Deploy new implementation, then owner calls via proxy:
+vault.upgradeToAndCall(newImplAddress, "")
+# Storage preserved, logic updated, zero order migration.
 ```
 
 ### Tests
@@ -285,6 +273,16 @@ cd backend && npm test
 | `POST` | `/dca/prepare-cancel` | Bundle: cancel → withdraw remaining |
 | `GET` | `/dca/orders/:address` | User's DCA orders |
 | `GET` | `/dca/executable` | Orders ready to execute (keeper) |
+
+### External Swap Provider API (`/provider/swap`)
+
+Used by the Liquid Swap Service's Aerodrome adapter for Base same-chain swaps.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/provider/swap/supports` | Check if Aerodrome supports a given swap route |
+| `POST` | `/provider/swap/quote` | Get a swap quote (estimated output, exchange rate) |
+| `POST` | `/provider/swap/prepare` | Prepare swap transactions for user signature |
 
 ### Avalanche — Swap (`/avax/swap`)
 

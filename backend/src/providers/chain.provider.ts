@@ -6,40 +6,88 @@ const networks: Record<string, ethers.Network> = {
   avalanche: ethers.Network.from(43114),
 };
 
-const providers: Record<string, ethers.JsonRpcProvider | ethers.FallbackProvider> = {};
+const providers: Record<string, ethers.JsonRpcProvider> = {};
 
 /**
- * Creates a provider with automatic fallback across multiple RPC endpoints.
- * If only one RPC URL is configured, returns a simple JsonRpcProvider.
- * If multiple are configured, returns a FallbackProvider that tries them in priority order.
+ * Creates a provider with sequential failover across multiple RPC endpoints.
+ * Unlike ethers FallbackProvider (which requires quorum/consensus),
+ * this uses the primary RPC and only falls back on failure.
  */
-function createProvider(chain: string): ethers.JsonRpcProvider | ethers.FallbackProvider {
+function createProvider(chain: string): ethers.JsonRpcProvider {
   const config = getChainConfig(chain);
   const network = networks[chain];
 
-  if (config.rpcUrls.length === 1) {
-    const opts = network ? { staticNetwork: network } : {};
-    return new ethers.JsonRpcProvider(config.rpcUrls[0], network, opts);
+  // batchMaxCount: 1 — free RPCs reject large batches ("maximum 10 calls in 1 batch")
+  const opts = network
+    ? { staticNetwork: network, batchMaxCount: 1 }
+    : { batchMaxCount: 1 };
+
+  const primary = new ethers.JsonRpcProvider(config.rpcUrls[0], network, opts);
+
+  if (config.rpcUrls.length <= 1) {
+    return primary;
   }
 
-  // Multiple RPCs: create FallbackProvider with priority ordering
-  const rpcProviders = config.rpcUrls.map((url, index) => {
-    const opts = network ? { staticNetwork: network } : {};
-    const provider = new ethers.JsonRpcProvider(url, network, opts);
-    return {
-      provider,
-      priority: index + 1,   // lower = preferred (first URL is primary)
-      stallTimeout: 2000,     // wait 2s before trying next provider
-      weight: 1,
-    };
-  });
+  // Build fallback providers (lazy — only created on first failure)
+  const fallbackUrls = config.rpcUrls.slice(1);
+  let fallbackProviders: ethers.JsonRpcProvider[] | null = null;
 
-  console.log(`[ChainProvider] ${chain}: ${config.rpcUrls.length} RPC endpoints configured (fallback enabled)`);
+  function getFallbacks(): ethers.JsonRpcProvider[] {
+    if (!fallbackProviders) {
+      fallbackProviders = fallbackUrls.map(
+        (url) => new ethers.JsonRpcProvider(url, network, opts)
+      );
+    }
+    return fallbackProviders;
+  }
 
-  return new ethers.FallbackProvider(rpcProviders, network);
+  console.log(`[ChainProvider] ${chain}: ${config.rpcUrls.length} RPC endpoints configured (failover enabled)`);
+
+  // Per-RPC timeout — free RPCs often hang instead of failing cleanly.
+  // Without this, a single slow RPC blocks the entire failover chain.
+  const RPC_TIMEOUT_MS = 3500;
+
+  function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("rpc_call_timeout")), ms)
+      ),
+    ]);
+  }
+
+  // Wrap the primary provider's send method with timeout + parallel fallback.
+  // Strategy: fire primary first; on failure, race all fallbacks simultaneously.
+  const originalSend = primary.send.bind(primary);
+  primary.send = async function failoverSend(method: string, params: any[]): Promise<any> {
+    try {
+      return await withTimeout(originalSend(method, params), RPC_TIMEOUT_MS);
+    } catch (primaryError) {
+      // Primary failed/timed out — race all fallbacks in parallel (fastest wins)
+      const fallbacks = getFallbacks();
+      if (fallbacks.length === 0) throw primaryError;
+
+      // Race all fallbacks — first to succeed wins. If all reject, throw original.
+      try {
+        return await new Promise<any>((resolve, reject) => {
+          let remaining = fallbacks.length;
+          for (const fb of fallbacks) {
+            withTimeout(fb.send(method, params), RPC_TIMEOUT_MS).then(
+              resolve,
+              () => { if (--remaining === 0) reject(primaryError); }
+            );
+          }
+        });
+      } catch {
+        throw primaryError;
+      }
+    }
+  };
+
+  return primary;
 }
 
-export function getProvider(chain: string): ethers.JsonRpcProvider | ethers.FallbackProvider {
+export function getProvider(chain: string): ethers.JsonRpcProvider {
   if (!providers[chain]) {
     providers[chain] = createProvider(chain);
   }

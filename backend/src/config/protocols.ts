@@ -131,28 +131,25 @@ export async function getUserAdapterAddress(userAddress: string, protocolId: str
     const executor    = getContract(chainConfig.contracts.panoramaExecutor, PANORAMA_EXECUTOR_ABI, chain);
     const protoId     = encodeProtocolId(protocolId);
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const predicted: string = await withTimeout(
-          () => executor.predictUserAdapter(protoId, userAddress)
-        );
-        const hasAddress = Boolean(predicted) && predicted !== "0x0000000000000000000000000000000000000000";
-        adapterCache.set(cacheKey, {
-          value:     hasAddress ? predicted : "",
-          expiresAt: Date.now() + (hasAddress ? ADAPTER_TTL_MS : EMPTY_TTL_MS),
-        });
-        return predicted;
-      } catch (err) {
-        if (isAdapterMissingError(err)) {
-          adapterCache.set(cacheKey, { value: "", expiresAt: Date.now() + EMPTY_TTL_MS });
-          return "";
-        }
-        console.warn(
-          `[getUserAdapterAddress] attempt ${attempt + 1} failed:`,
-          err instanceof Error ? err.message : err
-        );
-        if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    try {
+      const predicted: string = await withTimeout(
+        () => executor.predictUserAdapter(protoId, userAddress)
+      );
+      const hasAddress = Boolean(predicted) && predicted !== "0x0000000000000000000000000000000000000000";
+      adapterCache.set(cacheKey, {
+        value:     hasAddress ? predicted : "",
+        expiresAt: Date.now() + (hasAddress ? ADAPTER_TTL_MS : EMPTY_TTL_MS),
+      });
+      return predicted;
+    } catch (err) {
+      if (isAdapterMissingError(err)) {
+        adapterCache.set(cacheKey, { value: "", expiresAt: Date.now() + EMPTY_TTL_MS });
+        return "";
       }
+      console.warn(
+        `[getUserAdapterAddress] failed:`,
+        err instanceof Error ? err.message : err
+      );
     }
     adapterCache.set(cacheKey, { value: "", expiresAt: Date.now() + EMPTY_TTL_MS });
     return "";

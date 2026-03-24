@@ -33,9 +33,25 @@ export interface PrepareEnterStrategyResponse {
   };
 }
 
+// Hard timeout for the entire prepare-enter flow.
+// Prevents silent hangs from compounding when frontend retries are serialized.
+const ENTER_TIMEOUT_MS = 15_000;
+
 export async function executeEnterStrategy(
   req: PrepareEnterStrategyRequest
 ): Promise<PrepareEnterStrategyResponse> {
+  return Promise.race([
+    _executeEnterStrategyInner(req),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("prepare-enter timed out after 15s — RPC nodes may be congested")), ENTER_TIMEOUT_MS)
+    ),
+  ]);
+}
+
+async function _executeEnterStrategyInner(
+  req: PrepareEnterStrategyRequest
+): Promise<PrepareEnterStrategyResponse> {
+  const t0 = Date.now();
   const poolConfig = getStakingPoolById(req.poolId);
   if (!poolConfig) {
     throw new Error(`Staking pool not found: ${req.poolId}`);
@@ -59,20 +75,20 @@ export async function executeEnterStrategy(
   // Cap amounts to user's actual on-chain balance to avoid TransferFromFailed.
   const [balA, balB] = await Promise.all([
     !isNativeETH(poolConfig.tokenA.address)
-      ? aerodromeService.withRetry(async () => {
+      ? aerodromeService.withTimeout(async () => {
           const c = getContract(poolConfig.tokenA.address, ERC20_ABI, "base");
           return c.balanceOf(req.userAddress) as Promise<bigint>;
-        }, 1, 250).catch(() => amountADesired)
+        }).catch(() => amountADesired)
       : Promise.resolve(amountADesired),
     !isNativeETH(poolConfig.tokenB.address)
-      ? aerodromeService.withRetry(async () => {
+      ? aerodromeService.withTimeout(async () => {
           const c = getContract(poolConfig.tokenB.address, ERC20_ABI, "base");
           return c.balanceOf(req.userAddress) as Promise<bigint>;
-        }, 1, 250).catch(() => amountBDesired)
+        }).catch(() => amountBDesired)
       : Promise.resolve(amountBDesired),
   ]);
 
-  console.log(`[ENTER] ${poolConfig.tokenA.symbol} balance=${balA}, desired=${amountADesired}, capped=${amountADesired > balA}`);
+  console.log(`[ENTER] ${poolConfig.tokenA.symbol} balance=${balA}, desired=${amountADesired}, capped=${amountADesired > balA} (+${Date.now() - t0}ms)`);
   console.log(`[ENTER] ${poolConfig.tokenB.symbol} balance=${balB}, desired=${amountBDesired}, capped=${amountBDesired > balB}`);
   if (amountADesired > balA) amountADesired = balA;
   if (amountBDesired > balB) amountBDesired = balB;
@@ -80,19 +96,19 @@ export async function executeEnterStrategy(
   if (amountADesired === 0n) throw new Error(`Insufficient ${poolConfig.tokenA.symbol} balance to enter this position`);
   if (amountBDesired === 0n) throw new Error(`Insufficient ${poolConfig.tokenB.symbol} balance to enter this position`);
 
-  // Resolve pool and gauge addresses
+  // Resolve pool and gauge addresses (hardcoded in config — instant)
   const { poolAddress, gaugeAddress } = await aerodromeService.resolvePoolAndGauge(poolConfig);
+  console.log(`[ENTER] resolvePoolAndGauge done (+${Date.now() - t0}ms) pool=${poolAddress}, gauge=${gaugeAddress}`);
 
-  // Query router for optimal amounts based on pool ratio
-  const { optimalA, optimalB, estimatedLiquidity } = await aerodromeService.withRetry(() =>
-    aerodromeService.quoteAddLiquidity(
-      poolConfig.tokenA.address,
-      poolConfig.tokenB.address,
-      poolConfig.stable,
-      amountADesired,
-      amountBDesired
-    )
+  // Query router for optimal amounts based on pool ratio.
+  const { optimalA, optimalB, estimatedLiquidity } = await aerodromeService.quoteAddLiquidity(
+    poolConfig.tokenA.address,
+    poolConfig.tokenB.address,
+    poolConfig.stable,
+    amountADesired,
+    amountBDesired
   );
+  console.log(`[ENTER] quoteAddLiquidity done (+${Date.now() - t0}ms) optA=${optimalA}, optB=${optimalB}, liq=${estimatedLiquidity}`);
 
   if (estimatedLiquidity === 0n) {
     throw new Error(
@@ -123,6 +139,7 @@ export async function executeEnterStrategy(
     chainId:            chain.chainId,
     poolName:           poolConfig.name,
   });
+  console.log(`[ENTER] buildBundle done (+${Date.now() - t0}ms)`);
 
   return {
     bundle: builder.build(`Enter staking position: ${poolConfig.name}`),

@@ -25,6 +25,22 @@ function getUserKey(req: Request): string | null {
 }
 
 export function serializeByUser(req: Request, res: Response, next: NextFunction): void {
+  // Only serialize state-changing requests (POST/PUT/PATCH/DELETE).
+  // GET/HEAD are idempotent reads — they must NOT block writes.
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+    next();
+    return;
+  }
+
+  // Skip serialization for prepare-* routes — they are idempotent read-only
+  // queries that build unsigned tx bundles. The frontend fires multiple prewarm
+  // POSTs on amount change; serializing them causes the user's final request
+  // to queue behind all prewarms, compounding latency past the 30s timeout.
+  if (req.path.includes("/prepare-")) {
+    next();
+    return;
+  }
+
   const userKey = getUserKey(req);
 
   // No user identified — pass through (health checks, public routes)

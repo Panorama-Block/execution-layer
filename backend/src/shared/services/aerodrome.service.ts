@@ -120,9 +120,18 @@ export class AerodromeService {
   // ========== POOL ==========
 
   async getPoolAddress(tokenA: string, tokenB: string, stable: boolean): Promise<string> {
+    // Pool addresses are immutable — cache for 10 minutes
+    const a = resolveTokenAddress(tokenA).toLowerCase();
+    const b = resolveTokenAddress(tokenB).toLowerCase();
+    const cacheKey = `pool:${[a, b].sort().join(":")}:${stable}`;
+    const cached = getCached(poolInfoCache, cacheKey);
+    if (cached) return cached as string;
+
     const config = getProtocolConfig("aerodrome");
     const factory = getContract(config.contracts.factory, AERODROME_FACTORY_ABI, CHAIN);
-    return factory.getPool(resolveTokenAddress(tokenA), resolveTokenAddress(tokenB), stable);
+    const result: string = await factory.getPool(a, b, stable);
+    setCache(poolInfoCache, cacheKey, result, 600_000); // 10min
+    return result;
   }
 
   async resolvePoolAndGauge(poolConfig: {
@@ -133,12 +142,12 @@ export class AerodromeService {
     stable: boolean;
     name: string;
   }): Promise<{ poolAddress: string; gaugeAddress: string }> {
+    // No withRetry — getPoolAddress/getGaugeForPool use cache (10min/5min TTL)
+    // and the RPC provider already has parallel failover across 3 endpoints.
     const poolAddress =
       poolConfig.poolAddress && poolConfig.poolAddress !== ethers.ZeroAddress
         ? poolConfig.poolAddress
-        : await this.withRetry(() =>
-            this.getPoolAddress(poolConfig.tokenA.address, poolConfig.tokenB.address, poolConfig.stable)
-          );
+        : await this.getPoolAddress(poolConfig.tokenA.address, poolConfig.tokenB.address, poolConfig.stable);
 
     if (!poolAddress || poolAddress === ethers.ZeroAddress) {
       throw new Error(`Pool not found on-chain for ${poolConfig.name}`);
@@ -147,7 +156,7 @@ export class AerodromeService {
     const gaugeAddress =
       poolConfig.gaugeAddress && poolConfig.gaugeAddress !== ethers.ZeroAddress
         ? poolConfig.gaugeAddress
-        : await this.withRetry(() => this.getGaugeForPool(poolAddress));
+        : await this.getGaugeForPool(poolAddress);
 
     if (!gaugeAddress || gaugeAddress === ethers.ZeroAddress) {
       throw new Error(`Gauge not found for pool ${poolConfig.name}`);

@@ -24,6 +24,15 @@ vi.mock("../../../shared/services/aerodrome.service", () => ({
   },
 }));
 
+vi.mock("../../../providers/chain.provider", () => ({
+  getContract: vi.fn(() => ({
+    balanceOf: vi.fn().mockResolvedValue(10_000n),
+    getReserves: vi.fn().mockResolvedValue([1_000_000n, 2_000_000n, 0n]),
+    totalSupply: vi.fn().mockResolvedValue(10_000n),
+    token0: vi.fn().mockResolvedValue("0x4200000000000000000000000000000000000006"),
+  })),
+}));
+
 vi.mock("../../../modules/liquid-staking/config/staking-pools", () => ({
   getStakingPoolById: vi.fn((id: string) => {
     if (id === "weth-usdc-volatile") {

@@ -21,6 +21,7 @@ vi.mock("../../../shared/services/aerodrome.service", () => ({
     checkAllowance: vi.fn(),
     quoteAddLiquidity: vi.fn(),
     withRetry: vi.fn(<T>(fn: () => Promise<T>) => fn()),
+    withTimeout: vi.fn(<T>(fn: () => Promise<T>) => fn()),
   },
 }));
 

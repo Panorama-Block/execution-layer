@@ -24,6 +24,21 @@ interface Route {
 const BALANCE_CACHE_TTL_MS = 90_000;
 const walletBalanceCache = new Map<string, { value: string; expiresAt: number }>();
 
+const poolInfoCache = new Map<string, { value: unknown; expiresAt: number }>();
+
+function getCached(cache: Map<string, { value: unknown; expiresAt: number }>, key: string): unknown | null {
+  const entry = cache.get(key);
+  if (!entry || Date.now() >= entry.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCache(cache: Map<string, { value: unknown; expiresAt: number }>, key: string, value: unknown, ttlMs: number): void {
+  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
 function resolveTokenAddress(address: string): string {
   return address === ETH_ADDRESS ? WETH : address;
 }

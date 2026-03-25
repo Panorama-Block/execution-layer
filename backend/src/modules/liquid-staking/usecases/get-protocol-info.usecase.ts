@@ -34,6 +34,18 @@ async function fetchDexScreenerMetrics(poolAddress: string, feeRate: number): Pr
   }
 }
 
+/** Best-effort gauge call with short timeout (no retries — these are non-critical). */
+async function safeGaugeCall(gauge: ethers.Contract, method: string): Promise<bigint> {
+  try {
+    return await Promise.race([
+      gauge[method]() as Promise<bigint>,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 2500)),
+    ]);
+  } catch {
+    return 0n;
+  }
+}
+
 interface PoolInfo {
   poolId: string;
   poolName: string;
@@ -77,23 +89,14 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
       console.log(`[PROTOCOL-INFO]   poolAddress=${poolAddress}, gaugeAddress=${gaugeAddress}`);
 
       const gauge = getContract(gaugeAddress, GAUGE_ABI, "base");
+      const feeRate = pool.stable ? 0.0001 : 0.003;
 
-      const feeRate = pool.stable ? 0.0001 : 0.003; // 1bp stable, 30bp volatile
-
-      // Run gauge calls and DexScreener in parallel
-      const [rewardRate, totalStaked, dexMetrics] = await Promise.all([
-        aerodromeService.withRetry(() => gauge.rewardRate() as Promise<bigint>).catch((e) => {
-          console.error(`[PROTOCOL-INFO]   rewardRate FAILED:`, e instanceof Error ? e.message : e);
-          return 0n;
-        }),
-        aerodromeService.withRetry(() => gauge.totalSupply() as Promise<bigint>).catch((e) => {
-          console.error(`[PROTOCOL-INFO]   totalSupply FAILED:`, e instanceof Error ? e.message : e);
-          return 0n;
-        }),
+      // DexScreener is the critical path (APR + TVL). Gauge calls are best-effort — no retries.
+      const [dexMetrics, rewardRate, totalStaked] = await Promise.all([
         fetchDexScreenerMetrics(poolAddress, feeRate),
+        safeGaugeCall(gauge, "rewardRate"),
+        safeGaugeCall(gauge, "totalSupply"),
       ]);
-
-      console.log(`[PROTOCOL-INFO]   rewardRate=${rewardRate.toString()}, totalStaked=${totalStaked.toString()}`);
 
       let estimatedAPR = "0";
       let aprSource = "unavailable";
@@ -110,9 +113,6 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
       }
 
       console.log(`[PROTOCOL-INFO]   estimatedAPR=${estimatedAPR}%`);
-      if (totalLiquidityUsd != null) {
-        console.log(`[PROTOCOL-INFO]   totalLiquidityUsd=$${totalLiquidityUsd}`);
-      }
 
       return {
         poolId: pool.id,

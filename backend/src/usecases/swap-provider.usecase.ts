@@ -1,4 +1,3 @@
-import { ethers } from "ethers";
 import { getChainConfig } from "../config/chains";
 import { BASE_TOKENS } from "../config/protocols";
 import { aerodromeService } from "../shared/services/aerodrome.service";
@@ -36,18 +35,11 @@ export async function executeSupportsRoute(params: {
     return { supported: false, reason: "Token not recognized on Base" };
   }
 
-  try {
-    const volatilePool = await aerodromeService.getPoolAddress(tokenIn, tokenOut, false);
-    const stablePool   = await aerodromeService.getPoolAddress(tokenIn, tokenOut, true);
-    const hasPool =
-      volatilePool !== ethers.ZeroAddress || stablePool !== ethers.ZeroAddress;
-
-    return hasPool
-      ? { supported: true }
-      : { supported: false, reason: "No Aerodrome pool exists for this pair" };
-  } catch {
-    return { supported: false, reason: "Failed to check pool availability" };
-  }
+  // Optimistic: if both tokens resolve on Base, assume Aerodrome can handle it.
+  // Actual pool existence is verified during the quote/prepare phase.
+  // This avoids slow on-chain factory.getPool calls that block the event loop
+  // and cause the liquid-swap-service to timeout waiting for a supportsRoute answer.
+  return { supported: true };
 }
 
 /**

@@ -14,6 +14,7 @@ import {
 import { asyncHandler } from "../../../middleware/errorHandler";
 import { validateAddress, validateAmount, validateRequired, validateSlippage, validateTxHash } from "../../../middleware/validation";
 import { requireWalletAuth } from "../../../middleware/auth";
+import { executionTimeout } from "../../../middleware/execution-timeout";
 
 export const stakingRoutes = Router();
 
@@ -42,6 +43,7 @@ stakingRoutes.post("/prepare-enter",
   validateAmount("amountA"),
   validateAmount("amountB"),
   validateSlippage(),
+  executionTimeout(),
   asyncHandler(prepareEnterStrategy)
 );
 
@@ -49,12 +51,14 @@ stakingRoutes.post("/prepare-exit",
   validateRequired("userAddress", "poolId"),
   validateAddress("userAddress"),
   validateSlippage(),
+  executionTimeout(),
   asyncHandler(prepareExitStrategy)
 );
 
 stakingRoutes.post("/prepare-claim",
   validateRequired("userAddress", "poolId"),
   validateAddress("userAddress"),
+  executionTimeout(),
   asyncHandler(prepareClaimRewards)
 );
 

@@ -12,6 +12,7 @@ import {
 import { asyncHandler } from "../../../middleware/errorHandler";
 import { validateAddress, validateRequired, validateTxHash } from "../../../middleware/validation";
 import { requireWalletAuth } from "../../../middleware/auth";
+import { executionTimeout } from "../../../middleware/execution-timeout";
 
 export const dcaRoutes = Router();
 
@@ -19,12 +20,14 @@ export const dcaRoutes = Router();
 dcaRoutes.post("/prepare-create",
   validateRequired("userAddress", "tokenIn", "tokenOut", "amountPerSwap", "intervalSeconds", "depositAmount"),
   validateAddress("userAddress"),
+  executionTimeout(),
   asyncHandler(prepareCreateOrder)
 );
 
 dcaRoutes.post("/prepare-cancel",
   validateRequired("userAddress", "orderId"),
   validateAddress("userAddress"),
+  executionTimeout(),
   asyncHandler(prepareCancelOrder)
 );
 

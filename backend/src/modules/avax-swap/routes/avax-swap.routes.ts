@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { validateAddress, validateAmount, validateSlippage, validateRequired } from "../../../middleware/validation";
+import { executionTimeout } from "../../../middleware/execution-timeout";
 import * as ctrl from "../controllers/avax-swap.controller";
 
 export const avaxSwapRoutes = Router();
@@ -23,6 +24,7 @@ avaxSwapRoutes.post(
   validateAddress("tokenOut"),
   validateAmount("amountIn"),
   validateSlippage(),
+  executionTimeout(),
   ctrl.getQuote
 );
 
@@ -41,5 +43,6 @@ avaxSwapRoutes.post(
   validateAddress("tokenOut"),
   validateAmount("amountIn"),
   validateSlippage(),
+  executionTimeout(),
   ctrl.prepareSwap
 );

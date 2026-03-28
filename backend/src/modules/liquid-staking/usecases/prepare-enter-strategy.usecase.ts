@@ -6,6 +6,7 @@ import { getDeadline, isNativeETH, applySlippage } from "../../../utils/encoding
 import { TransactionBundle } from "../../../types/transaction";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
 import { buildAerodromeAddLiquidityBundle } from "../../../shared/aerodrome-add-liquidity";
+import { AppError } from "../../../shared/errorCodes";
 
 export interface PrepareEnterStrategyRequest {
   userAddress: string;
@@ -54,13 +55,13 @@ async function _executeEnterStrategyInner(
   const t0 = Date.now();
   const poolConfig = getStakingPoolById(req.poolId);
   if (!poolConfig) {
-    throw new Error(`Staking pool not found: ${req.poolId}`);
+    throw new AppError("POOL_NOT_FOUND", `Staking pool not found: ${req.poolId}`);
   }
 
   const chain = getChainConfig("base");
   const executorAddress = chain.contracts.panoramaExecutor;
   if (!executorAddress) {
-    throw new Error("Executor contract not configured");
+    throw new AppError("EXECUTOR_NOT_CONFIGURED");
   }
 
   let amountADesired = BigInt(req.amountA);
@@ -93,8 +94,8 @@ async function _executeEnterStrategyInner(
   if (amountADesired > balA) amountADesired = balA;
   if (amountBDesired > balB) amountBDesired = balB;
 
-  if (amountADesired === 0n) throw new Error(`Insufficient ${poolConfig.tokenA.symbol} balance to enter this position`);
-  if (amountBDesired === 0n) throw new Error(`Insufficient ${poolConfig.tokenB.symbol} balance to enter this position`);
+  if (amountADesired === 0n) throw new AppError("INSUFFICIENT_BALANCE", `Insufficient ${poolConfig.tokenA.symbol} balance to enter this position`);
+  if (amountBDesired === 0n) throw new AppError("INSUFFICIENT_BALANCE", `Insufficient ${poolConfig.tokenB.symbol} balance to enter this position`);
 
   // Resolve pool and gauge addresses (hardcoded in config — instant)
   const { poolAddress, gaugeAddress } = await aerodromeService.resolvePoolAndGauge(poolConfig);
@@ -111,7 +112,8 @@ async function _executeEnterStrategyInner(
   console.log(`[ENTER] quoteAddLiquidity done (+${Date.now() - t0}ms) optA=${optimalA}, optB=${optimalB}, liq=${estimatedLiquidity}`);
 
   if (estimatedLiquidity === 0n) {
-    throw new Error(
+    throw new AppError(
+      "NO_LIQUIDITY",
       `Cannot add liquidity: the provided amounts are too small or too imbalanced. ` +
       `Try increasing both ${poolConfig.tokenA.symbol} and ${poolConfig.tokenB.symbol} amounts.`
     );

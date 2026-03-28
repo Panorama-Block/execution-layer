@@ -15,6 +15,14 @@ export const ErrorCodes = {
 
   // Client errors (400)
   UNSUPPORTED_OPERATION: { code: "UNSUPPORTED_OPERATION", status: 400, message: "Operation not supported for this token or pool" },
+  INSUFFICIENT_BALANCE: { code: "INSUFFICIENT_BALANCE", status: 400, message: "Insufficient token balance" },
+  INSUFFICIENT_LP_BALANCE: { code: "INSUFFICIENT_LP_BALANCE", status: 400, message: "Insufficient LP token balance" },
+  NO_LIQUIDITY: { code: "NO_LIQUIDITY", status: 400, message: "No liquidity available for this pair" },
+  NO_LP_POSITION: { code: "NO_LP_POSITION", status: 400, message: "No LP position found" },
+  NO_REWARDS: { code: "NO_REWARDS", status: 400, message: "No rewards available to claim" },
+  EXECUTOR_NOT_CONFIGURED: { code: "EXECUTOR_NOT_CONFIGURED", status: 500, message: "Executor contract not configured" },
+  ORDER_UNAUTHORIZED: { code: "ORDER_UNAUTHORIZED", status: 403, message: "Order does not belong to this wallet" },
+  ORDER_INACTIVE: { code: "ORDER_INACTIVE", status: 400, message: "Order is already inactive" },
 
   // Auth errors (401)
   INVALID_SIGNATURE: { code: "INVALID_SIGNATURE", status: 401, message: "Invalid or missing wallet signature" },

@@ -91,7 +91,7 @@ describe("executeExitStrategy", () => {
     mockWalletBal.mockResolvedValue(0n);
     await expect(
       executeExitStrategy({ userAddress: USER, poolId: "weth-usdc-volatile", amount: "1000" })
-    ).rejects.toThrow("Insufficient LP balance");
+    ).rejects.toThrow("Have total: 500");
   });
 
   it("full exit includes unstake + approve + removeLiquidity steps", async () => {

@@ -1,6 +1,7 @@
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
 import { applySlippage } from "../../../utils/encoding";
 import { getTokenDecimals, formatExchangeRate } from "../../../utils/tokenMath";
+import { AppError } from "../../../shared/errorCodes";
 
 export interface SwapQuoteRequest {
   tokenIn: string;
@@ -42,9 +43,9 @@ export async function executeGetSwapQuote(req: SwapQuoteRequest): Promise<SwapQu
     if (volatileOut === 0n && stableOut === 0n) {
       // Distinguish: if both calls rejected it's an RPC issue (retryable), not missing liquidity.
       if (volatileResult.status === "rejected" && stableResult.status === "rejected") {
-        throw new Error(`RPC error fetching pool quotes. Please try again.`);
+        throw new AppError("RPC_ERROR", "RPC error fetching pool quotes. Please try again.");
       }
-      throw new Error("No liquidity available on Aerodrome for this pair");
+      throw new AppError("NO_LIQUIDITY", "No liquidity available on Aerodrome for this pair");
     }
 
     // Only prefer stable pool if it's meaningfully better (≥1% = 100 bps).

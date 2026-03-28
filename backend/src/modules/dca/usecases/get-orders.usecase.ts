@@ -1,6 +1,7 @@
 import { getChainConfig } from "../../../config/chains";
 import { getContract } from "../../../providers/chain.provider";
 import { DCA_VAULT_ABI } from "../../../utils/abi";
+import { AppError } from "../../../shared/errorCodes";
 
 export interface DCAOrderInfo {
   orderId: number;
@@ -71,7 +72,7 @@ export async function executeGetOrder(orderId: number): Promise<DCAOrderInfo> {
   ]);
 
   if (order.owner === "0x0000000000000000000000000000000000000000") {
-    throw new Error(`Order ${orderId} not found`);
+    throw new AppError("ORDER_NOT_FOUND", `Order ${orderId} not found`);
   }
 
   return {

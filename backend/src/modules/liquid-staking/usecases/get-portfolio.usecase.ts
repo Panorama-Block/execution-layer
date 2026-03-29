@@ -4,6 +4,7 @@ import { getContract } from "../../../providers/chain.provider";
 import { ERC20_ABI, POOL_ABI } from "../../../utils/abi";
 import { BASE_TOKENS } from "../../../config/protocols";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
+import { createCache, getCached, setCache, getStale, type TTLCache } from "../../../shared/cache";
 
 interface PortfolioAsset {
   poolId: string;
@@ -20,7 +21,12 @@ export interface GetPortfolioResponse {
   totalPositions: number;
   assets: PortfolioAsset[];
   walletBalances: Record<string, string>;
+  stale?: boolean;
+  lastUpdated?: string;
 }
+
+const portfolioCache = createCache<GetPortfolioResponse>();
+const PORTFOLIO_CACHE_TTL = 30_000; // 30s
 
 async function resolvePoolAndGauge(
   pool: ReturnType<typeof getEnabledStakingPools>[number]
@@ -33,6 +39,27 @@ async function resolvePoolAndGauge(
 }
 
 export async function executeGetPortfolio(userAddress: string): Promise<GetPortfolioResponse> {
+  const cacheKey = userAddress.toLowerCase();
+
+  const cached = getCached(portfolioCache, cacheKey);
+  if (cached) return cached;
+
+  try {
+    const data = await fetchPortfolioFresh(userAddress);
+    setCache(portfolioCache, cacheKey, data, PORTFOLIO_CACHE_TTL);
+    return data;
+  } catch (err) {
+    // On failure, return stale cache if available
+    const stale = getStale(portfolioCache, cacheKey);
+    if (stale) {
+      console.warn(`[PORTFOLIO] Fetch failed for ${userAddress}, returning stale data from ${stale.value.lastUpdated} —`, err instanceof Error ? err.message : err);
+      return { ...stale.value, stale: true };
+    }
+    throw err;
+  }
+}
+
+async function fetchPortfolioFresh(userAddress: string): Promise<GetPortfolioResponse> {
   const enabledPools = getEnabledStakingPools();
 
   // Run wallet balances, adapter lookup, and pool resolution ALL in parallel
@@ -142,5 +169,6 @@ export async function executeGetPortfolio(userAddress: string): Promise<GetPortf
     totalPositions: assets.length,
     assets,
     walletBalances,
+    lastUpdated: new Date().toISOString(),
   };
 }

@@ -3,6 +3,7 @@ import { getChainConfig } from "../../../config/chains";
 import { getContract } from "../../../providers/chain.provider";
 import { DCA_VAULT_ABI } from "../../../utils/abi";
 import { PreparedTransaction, TransactionBundle } from "../../../types/transaction";
+import { AppError } from "../../../shared/errorCodes";
 
 export interface PrepareCancelOrderRequest {
   userAddress: string;
@@ -25,10 +26,10 @@ export async function executePrepareCancel(
   const vault = getContract(dcaVaultAddress, DCA_VAULT_ABI, "base");
   const order = await vault.orders(req.orderId);
   if (order.owner.toLowerCase() !== req.userAddress.toLowerCase()) {
-    throw new Error(`Order ${req.orderId} does not belong to ${req.userAddress}`);
+    throw new AppError("ORDER_UNAUTHORIZED", `Order ${req.orderId} does not belong to ${req.userAddress}`);
   }
   if (!order.active) {
-    throw new Error(`Order ${req.orderId} is already inactive`);
+    throw new AppError("ORDER_INACTIVE", `Order ${req.orderId} is already inactive`);
   }
 
   const steps: PreparedTransaction[] = [];

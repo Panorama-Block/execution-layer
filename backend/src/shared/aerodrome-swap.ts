@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { aerodromeService } from "./services/aerodrome.service";
 import { BundleBuilder, ADAPTER_SELECTORS } from "./bundle-builder";
 import { encodeProtocolId, isNativeETH } from "../utils/encoding";
+import { AppError } from "./errorCodes";
 
 export interface AerodromeSwapBundleParams {
   userAddress: string;
@@ -49,7 +50,7 @@ export async function buildAerodromeSwapBundle(
     if (balanceResult.status === "fulfilled") {
       const balance = balanceResult.value;
       if (balance < amountIn) {
-        throw new Error(`Insufficient token balance: have ${balance}, need ${amountIn}`);
+        throw new AppError("INSUFFICIENT_BALANCE", `Have ${balance}, need ${amountIn}`);
       }
     } else {
       console.warn(`[aerodrome-swap] balance read failed — skipping check, executor will revert if insufficient: ${(balanceResult.reason as Error)?.message}`);

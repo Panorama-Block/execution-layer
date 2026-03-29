@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { getContract } from "../../providers/chain.provider";
 import { getProtocolConfig, getUserAdapterAddress } from "../../config/protocols";
+import { AppError } from "../errorCodes";
 import {
   AERODROME_ROUTER_ABI,
   AERODROME_FACTORY_ABI,
@@ -139,7 +140,7 @@ export class AerodromeService {
         : await this.getPoolAddress(poolConfig.tokenA.address, poolConfig.tokenB.address, poolConfig.stable);
 
     if (!poolAddress || poolAddress === ethers.ZeroAddress) {
-      throw new Error(`Pool not found on-chain for ${poolConfig.name}`);
+      throw new AppError("POOL_NOT_FOUND", `Pool not found on-chain for ${poolConfig.name}`);
     }
 
     const gaugeAddress =
@@ -148,7 +149,7 @@ export class AerodromeService {
         : await this.getGaugeForPool(poolAddress);
 
     if (!gaugeAddress || gaugeAddress === ethers.ZeroAddress) {
-      throw new Error(`Gauge not found for pool ${poolConfig.name}`);
+      throw new AppError("GAUGE_NOT_FOUND", `Gauge not found for pool ${poolConfig.name}`);
     }
 
     return { poolAddress, gaugeAddress };

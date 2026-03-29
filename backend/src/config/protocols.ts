@@ -1,3 +1,5 @@
+import { AppError } from "../shared/errorCodes";
+
 export interface ProtocolConfig {
   protocolId: string;
   name: string;
@@ -74,7 +76,7 @@ export function registerProtocol(protocolId: string, config: ProtocolConfig): vo
 
 export function getProtocolConfig(protocolId: string): ProtocolConfig {
   const config = PROTOCOL_REGISTRY[protocolId];
-  if (!config) throw new Error(`Unsupported protocol: ${protocolId}`);
+  if (!config) throw new AppError("UNSUPPORTED_OPERATION", `Unsupported protocol: ${protocolId}`);
   return config;
 }
 

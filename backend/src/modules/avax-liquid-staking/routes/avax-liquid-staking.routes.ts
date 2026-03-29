@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { validateAddress, validateAmount, validateRequired } from "../../../middleware/validation";
+import { executionTimeout } from "../../../middleware/execution-timeout";
 import * as ctrl from "../controllers/avax-liquid-staking.controller";
 
 export const avaxLiquidStakingRoutes = Router();
@@ -26,6 +27,7 @@ avaxLiquidStakingRoutes.post(
   validateRequired("userAddress", "amount"),
   validateAddress("userAddress"),
   validateAmount("amount"),
+  executionTimeout(),
   ctrl.prepareStake
 );
 
@@ -41,6 +43,7 @@ avaxLiquidStakingRoutes.post(
   validateRequired("userAddress", "sAvaxAmount"),
   validateAddress("userAddress"),
   validateAmount("sAvaxAmount"),
+  executionTimeout(),
   ctrl.prepareRequestUnlock
 );
 
@@ -55,5 +58,6 @@ avaxLiquidStakingRoutes.post(
   "/prepare-redeem",
   validateRequired("userAddress", "userUnlockIndex"),
   validateAddress("userAddress"),
+  executionTimeout(),
   ctrl.prepareRedeem
 );

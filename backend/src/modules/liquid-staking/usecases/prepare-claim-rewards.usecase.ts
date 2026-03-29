@@ -5,6 +5,7 @@ import { encodeProtocolId, getDeadline } from "../../../utils/encoding";
 import { TransactionBundle } from "../../../types/transaction";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
 import { BundleBuilder, ADAPTER_SELECTORS } from "../../../shared/bundle-builder";
+import { AppError } from "../../../shared/errorCodes";
 
 export interface PrepareClaimRewardsRequest {
   userAddress: string;
@@ -26,7 +27,7 @@ export async function executeClaimRewards(
 ): Promise<PrepareClaimRewardsResponse> {
   const poolConfig = getStakingPoolById(req.poolId);
   if (!poolConfig) {
-    throw new Error(`Staking pool not found: ${req.poolId}`);
+    throw new AppError("POOL_NOT_FOUND", `Staking pool not found: ${req.poolId}`);
   }
 
   const chain = getChainConfig("base");
@@ -41,7 +42,7 @@ export async function executeClaimRewards(
     : 0n;
 
   if (earnedRewards === 0n) {
-    throw new Error(`No rewards to claim for ${poolConfig.name}`);
+    throw new AppError("NO_REWARDS", `No rewards to claim for ${poolConfig.name}`);
   }
 
   const protocolId = encodeProtocolId("aerodrome");

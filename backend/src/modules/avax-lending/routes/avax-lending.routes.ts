@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { validateAddress, validateAmount, validateRequired } from "../../../middleware/validation";
+import { executionTimeout } from "../../../middleware/execution-timeout";
 import * as ctrl from "../controllers/avax-lending.controller";
 
 export const avaxLendingRoutes = Router();
@@ -33,6 +34,7 @@ avaxLendingRoutes.post(
   validateAddress("userAddress"),
   validateAddress("qTokenAddress"),
   validateAmount("amount"),
+  executionTimeout(),
   ctrl.prepareSupply
 );
 
@@ -49,6 +51,7 @@ avaxLendingRoutes.post(
   validateAddress("userAddress"),
   validateAddress("qTokenAddress"),
   validateAmount("amount"),
+  executionTimeout(),
   ctrl.prepareRedeem
 );
 
@@ -66,6 +69,7 @@ avaxLendingRoutes.post(
   validateAddress("userAddress"),
   validateAddress("qTokenAddress"),
   validateAmount("amount"),
+  executionTimeout(),
   ctrl.prepareBorrow
 );
 
@@ -82,5 +86,6 @@ avaxLendingRoutes.post(
   validateAddress("userAddress"),
   validateAddress("qTokenAddress"),
   validateAmount("amount"),
+  executionTimeout(),
   ctrl.prepareRepay
 );

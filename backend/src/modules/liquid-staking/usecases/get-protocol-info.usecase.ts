@@ -3,14 +3,26 @@ import { getEnabledStakingPools } from "../config/staking-pools";
 import { getContract } from "../../../providers/chain.provider";
 import { GAUGE_ABI, POOL_ABI } from "../../../utils/abi";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
+import { createCache, getCached, setCache } from "../../../shared/cache";
 
 type DexScreenerMetrics = {
   feeAPR: string | null;
   tvlUsd: number | null;
 };
 
-/** Fetch fee-based APR and real TVL from DexScreener. */
+// Granular caches for APR/TVL and gauge data
+const dexMetricsCache = createCache<DexScreenerMetrics>();
+const DEX_METRICS_TTL = 30_000; // 30s for APR + TVL
+
+const gaugeDataCache = createCache<{ rewardRate: bigint; totalStaked: bigint }>();
+const GAUGE_DATA_TTL = 60_000; // 60s for gauge rewards
+
+/** Fetch fee-based APR and real TVL from DexScreener (cached 30s). */
 async function fetchDexScreenerMetrics(poolAddress: string, feeRate: number): Promise<DexScreenerMetrics> {
+  const cacheKey = `dex:${poolAddress.toLowerCase()}:${feeRate}`;
+  const cached = getCached(dexMetricsCache, cacheKey);
+  if (cached) return cached;
+
   try {
     const res = await fetch(`https://api.dexscreener.com/latest/dex/pairs/base/${poolAddress}`, {
       signal: AbortSignal.timeout(8000),
@@ -22,12 +34,16 @@ async function fetchDexScreenerMetrics(poolAddress: string, feeRate: number): Pr
     const vol24h = pair?.volume?.h24 ?? null;
 
     if (!tvlUsd || tvlUsd <= 0 || !vol24h || vol24h <= 0) {
-      return { feeAPR: null, tvlUsd };
+      const result: DexScreenerMetrics = { feeAPR: null, tvlUsd };
+      setCache(dexMetricsCache, cacheKey, result, DEX_METRICS_TTL);
+      return result;
     }
 
     const feeAPR = (vol24h * feeRate * 365) / tvlUsd * 100;
     console.log(`[APR-DEXSCREENER] vol24h=$${vol24h.toFixed(0)}, tvl=$${tvlUsd.toFixed(0)}, feeRate=${feeRate}, feeAPR=${feeAPR.toFixed(2)}%`);
-    return { feeAPR: `${feeAPR.toFixed(2)}%`, tvlUsd };
+    const result: DexScreenerMetrics = { feeAPR: `${feeAPR.toFixed(2)}%`, tvlUsd };
+    setCache(dexMetricsCache, cacheKey, result, DEX_METRICS_TTL);
+    return result;
   } catch (e) {
     console.error(`[APR-DEXSCREENER] Failed:`, e instanceof Error ? e.message : e);
     return { feeAPR: null, tvlUsd: null };
@@ -68,7 +84,7 @@ export interface GetProtocolInfoResponse {
 }
 
 let cache: { data: GetProtocolInfoResponse; expiresAt: number } | null = null;
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL = 30_000; // 30s — individual caches (dex 30s, gauge 60s) handle per-resource freshness
 
 export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse> {
   if (cache && Date.now() < cache.expiresAt) {
@@ -88,15 +104,25 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
       );
       console.log(`[PROTOCOL-INFO]   poolAddress=${poolAddress}, gaugeAddress=${gaugeAddress}`);
 
-      const gauge = getContract(gaugeAddress, GAUGE_ABI, "base");
       const feeRate = pool.stable ? 0.0001 : 0.003;
 
-      // DexScreener is the critical path (APR + TVL). Gauge calls are best-effort — no retries.
-      const [dexMetrics, rewardRate, totalStaked] = await Promise.all([
-        fetchDexScreenerMetrics(poolAddress, feeRate),
-        safeGaugeCall(gauge, "rewardRate"),
-        safeGaugeCall(gauge, "totalSupply"),
-      ]);
+      // Gauge data cached 60s; DexScreener cached 30s.
+      const gaugeCacheKey = `gauge:${gaugeAddress.toLowerCase()}`;
+      let gaugeData = getCached(gaugeDataCache, gaugeCacheKey);
+      const dexPromise = fetchDexScreenerMetrics(poolAddress, feeRate);
+
+      if (!gaugeData) {
+        const gauge = getContract(gaugeAddress, GAUGE_ABI, "base");
+        const [rewardRate, totalStaked] = await Promise.all([
+          safeGaugeCall(gauge, "rewardRate"),
+          safeGaugeCall(gauge, "totalSupply"),
+        ]);
+        gaugeData = { rewardRate, totalStaked };
+        setCache(gaugeDataCache, gaugeCacheKey, gaugeData, GAUGE_DATA_TTL);
+      }
+
+      const dexMetrics = await dexPromise;
+      const { rewardRate, totalStaked } = gaugeData;
 
       let estimatedAPR = "0";
       let aprSource = "unavailable";

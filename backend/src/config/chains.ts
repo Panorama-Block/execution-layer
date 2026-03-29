@@ -12,10 +12,6 @@ export interface ChainConfig {
   };
 }
 
-/**
- * Parse comma-separated RPC URLs from env var, falling back to single URL.
- * Example: BASE_RPC_URLS="https://mainnet.base.org,https://base.llamarpc.com"
- */
 function parseRpcUrls(listEnv: string | undefined, singleEnv: string | undefined, defaultUrl: string): string[] {
   if (listEnv) {
     const urls = listEnv.split(",").map(u => u.trim()).filter(Boolean);
@@ -54,7 +50,7 @@ export function getChainConfig(chain: string): ChainConfig {
       contracts: {
         panoramaExecutor: process.env.AVAX_EXECUTOR_ADDRESS || "",
         dcaVault: "",
-        weth: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", // WAVAX
+        weth: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
       },
     };
   }

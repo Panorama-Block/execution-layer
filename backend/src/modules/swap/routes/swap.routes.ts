@@ -3,6 +3,7 @@ import { prepareSwap, getQuote, getSwapPairs, submitSwapTx, getSwapTxStatus, get
 import { asyncHandler } from "../../../middleware/errorHandler";
 import { validateAddress, validateAmount, validateRequired, validateSlippage, validateTxHash } from "../../../middleware/validation";
 import { requireWalletAuth } from "../../../middleware/auth";
+import { executionTimeout } from "../../../middleware/execution-timeout";
 
 export const swapRoutes = Router();
 
@@ -10,6 +11,7 @@ export const swapRoutes = Router();
 swapRoutes.post("/quote",
   validateRequired("tokenIn", "tokenOut", "amountIn"),
   validateSlippage(),
+  executionTimeout(),
   asyncHandler(getQuote)
 );
 
@@ -19,6 +21,7 @@ swapRoutes.post("/prepare",
   validateAddress("userAddress"),
   validateAmount("amountIn"),
   validateSlippage(),
+  executionTimeout(),
   asyncHandler(prepareSwap)
 );
 

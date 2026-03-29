@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { getContract } from "../../providers/chain.provider";
 import { getProtocolConfig, getUserAdapterAddress } from "../../config/protocols";
+import { AppError } from "../errorCodes";
 import {
   AERODROME_ROUTER_ABI,
   AERODROME_FACTORY_ABI,
@@ -24,13 +25,9 @@ interface Route {
 const BALANCE_CACHE_TTL_MS = 90_000;
 const walletBalanceCache = new Map<string, { value: string; expiresAt: number }>();
 
-// Cache for non-critical data (pool info, gauge mappings) — reduces RPC calls
-const POOL_INFO_CACHE_TTL_MS = 60_000;   // 60s — reserves change slowly
-const GAUGE_CACHE_TTL_MS = 300_000;       // 5min — gauge address is effectively static
-const poolInfoCache = new Map<string, { value: any; expiresAt: number }>();
-const gaugeCache = new Map<string, { value: string; expiresAt: number }>();
+const poolInfoCache = new Map<string, { value: unknown; expiresAt: number }>();
 
-function getCached<T>(cache: Map<string, { value: T; expiresAt: number }>, key: string): T | null {
+function getCached(cache: Map<string, { value: unknown; expiresAt: number }>, key: string): unknown | null {
   const entry = cache.get(key);
   if (!entry || Date.now() >= entry.expiresAt) {
     cache.delete(key);
@@ -39,15 +36,8 @@ function getCached<T>(cache: Map<string, { value: T; expiresAt: number }>, key: 
   return entry.value;
 }
 
-function setCache<T>(cache: Map<string, { value: T; expiresAt: number }>, key: string, value: T, ttl: number): void {
-  cache.set(key, { value, expiresAt: Date.now() + ttl });
-  // Prune if cache grows too large
-  if (cache.size > 500) {
-    const now = Date.now();
-    for (const [k, v] of cache) {
-      if (now >= v.expiresAt) cache.delete(k);
-    }
-  }
+function setCache(cache: Map<string, { value: unknown; expiresAt: number }>, key: string, value: unknown, ttlMs: number): void {
+  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
 function resolveTokenAddress(address: string): string {
@@ -150,7 +140,7 @@ export class AerodromeService {
         : await this.getPoolAddress(poolConfig.tokenA.address, poolConfig.tokenB.address, poolConfig.stable);
 
     if (!poolAddress || poolAddress === ethers.ZeroAddress) {
-      throw new Error(`Pool not found on-chain for ${poolConfig.name}`);
+      throw new AppError("POOL_NOT_FOUND", `Pool not found on-chain for ${poolConfig.name}`);
     }
 
     const gaugeAddress =
@@ -159,7 +149,7 @@ export class AerodromeService {
         : await this.getGaugeForPool(poolAddress);
 
     if (!gaugeAddress || gaugeAddress === ethers.ZeroAddress) {
-      throw new Error(`Gauge not found for pool ${poolConfig.name}`);
+      throw new AppError("GAUGE_NOT_FOUND", `Gauge not found for pool ${poolConfig.name}`);
     }
 
     return { poolAddress, gaugeAddress };
@@ -177,10 +167,6 @@ export class AerodromeService {
     reserve0: string;
     reserve1: string;
   }> {
-    const cacheKey = poolAddress.toLowerCase();
-    const cached = getCached(poolInfoCache, cacheKey);
-    if (cached) return cached;
-
     const pool = getContract(poolAddress, POOL_ABI, CHAIN);
     const [token0, token1, stable, reserves] = await Promise.all([
       pool.token0() as Promise<string>,
@@ -194,24 +180,16 @@ export class AerodromeService {
       t0.symbol() as Promise<string>,
       t1.symbol() as Promise<string>,
     ]);
-    const result = {
+    return {
       address: poolAddress, token0, token1, token0Symbol, token1Symbol,
       stable, reserve0: reserves[0].toString(), reserve1: reserves[1].toString(),
     };
-    setCache(poolInfoCache, cacheKey, result, POOL_INFO_CACHE_TTL_MS);
-    return result;
   }
 
   async getGaugeForPool(poolAddress: string): Promise<string> {
-    const cacheKey = poolAddress.toLowerCase();
-    const cached = getCached(gaugeCache, cacheKey);
-    if (cached) return cached;
-
     const config = getProtocolConfig("aerodrome");
     const voter = getContract(config.contracts.voter, VOTER_ABI, CHAIN);
-    const gaugeAddress: string = await voter.gauges(poolAddress);
-    setCache(gaugeCache, cacheKey, gaugeAddress, GAUGE_CACHE_TTL_MS);
-    return gaugeAddress;
+    return voter.gauges(poolAddress);
   }
 
   async getStakedBalance(gaugeAddress: string, adapterAddress: string): Promise<bigint> {

@@ -7,6 +7,7 @@ import { aerodromeService } from "../../../shared/services/aerodrome.service";
 import { BundleBuilder, ADAPTER_SELECTORS } from "../../../shared/bundle-builder";
 import { getContract } from "../../../providers/chain.provider";
 import { ERC20_ABI, POOL_ABI } from "../../../utils/abi";
+import { AppError } from "../../../shared/errorCodes";
 
 export interface PrepareExitStrategyRequest {
   userAddress: string;
@@ -38,7 +39,7 @@ export async function executeExitStrategy(
 ): Promise<PrepareExitStrategyResponse> {
   const poolConfig = getStakingPoolById(req.poolId);
   if (!poolConfig) {
-    throw new Error(`Staking pool not found: ${req.poolId}`);
+    throw new AppError("POOL_NOT_FOUND", `Staking pool not found: ${req.poolId}`);
   }
 
   const chain = getChainConfig("base");
@@ -61,11 +62,12 @@ export async function executeExitStrategy(
   const lpAmount = req.amount ? BigInt(req.amount) : totalAvailable;
 
   if (lpAmount === 0n) {
-    throw new Error(`No LP position found for ${poolConfig.name}`);
+    throw new AppError("NO_LP_POSITION", `No LP position found for ${poolConfig.name}`);
   }
   if (lpAmount > totalAvailable) {
-    throw new Error(
-      `Insufficient LP balance. Have total: ${totalAvailable.toString()} ` +
+    throw new AppError(
+      "INSUFFICIENT_LP_BALANCE",
+      `Have total: ${totalAvailable.toString()} ` +
       `(staked=${stakedBalance.toString()}, wallet=${walletLpBalance.toString()}), ` +
       `requested: ${lpAmount.toString()}`
     );
@@ -122,9 +124,9 @@ export async function executeExitStrategy(
       amountBMin = applySlippage(proportionalB, slippageBps);
     }
   } catch (e) {
-    throw new Error(
-      `Failed to fetch pool reserves for slippage calculation. Please try again. ` +
-      `(${e instanceof Error ? e.message : String(e)})`
+    throw new AppError(
+      "RPC_ERROR",
+      `Failed to fetch pool reserves for slippage calculation: ${e instanceof Error ? e.message : String(e)}`
     );
   }
 

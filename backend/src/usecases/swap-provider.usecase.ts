@@ -4,6 +4,7 @@ import { aerodromeService } from "../shared/services/aerodrome.service";
 import { executeGetSwapQuote } from "../modules/swap/usecases/get-quote.usecase";
 import { executePrepareSwapBundle } from "../modules/swap/usecases/prepare-swap.usecase";
 import { PreparedTransaction } from "../types/transaction";
+import { AppError } from "../shared/errorCodes";
 
 const BASE_CHAIN_ID = 8453;
 const ETH_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -63,7 +64,7 @@ export async function executeSwapQuote(params: {
   const tokenOut = resolveTokenAddress(params.toToken);
 
   if (!tokenIn || !tokenOut) {
-    throw new Error("Token not supported on Aerodrome");
+    throw new AppError("UNSUPPORTED_OPERATION", "Token not supported on Aerodrome");
   }
 
   const result = await executeGetSwapQuote({
@@ -101,7 +102,7 @@ export async function executeSwapPrepare(params: {
   const tokenOut = resolveTokenAddress(params.toToken);
 
   if (!tokenIn || !tokenOut) {
-    throw new Error("Token not supported on Aerodrome");
+    throw new AppError("UNSUPPORTED_OPERATION", "Token not supported on Aerodrome");
   }
 
   // Resolve best pool type first

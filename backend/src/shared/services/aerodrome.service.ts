@@ -1,8 +1,9 @@
 import { ethers } from "ethers";
 import { getContract } from "../../providers/chain.provider";
 import { getProtocolConfig, getUserAdapterAddress } from "../../config/protocols";
+import { encodeProtocolId } from "../../utils/encoding";
 import { AppError } from "../errorCodes";
-import { createCache, getCached, setCache, type TTLCache } from "../cache";
+import { createCache, getCached, setCache } from "../cache";
 import {
   AERODROME_ROUTER_ABI,
   AERODROME_FACTORY_ABI,
@@ -44,7 +45,7 @@ function resolveTokenAddress(address: string): string {
 }
 
 export class AerodromeService {
-  readonly protocolId = ethers.keccak256(ethers.toUtf8Bytes("aerodrome"));
+  readonly protocolId = encodeProtocolId("aerodrome");
 
   // Delegate to protocols.ts — already has caching + retry + in-flight dedup
   getUserAdapterAddress = getUserAdapterAddress;

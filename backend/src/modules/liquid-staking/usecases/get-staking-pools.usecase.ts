@@ -3,6 +3,7 @@ import { getContract } from "../../../providers/chain.provider";
 import { getProtocolConfig } from "../../../config/protocols";
 import { GAUGE_ABI, VOTER_ABI } from "../../../utils/abi";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
+import { logger } from "../../../shared/logger";
 
 interface StakingPoolInfo {
   id: string;
@@ -69,10 +70,7 @@ export async function executeGetStakingPools(): Promise<GetStakingPoolsResponse>
         rewardRate: rewardRate.toString(),
       };
     } catch (err) {
-      console.error(
-        `[STAKING/POOLS] Failed to resolve pool ${pool.name}:`,
-        err instanceof Error ? err.message : err
-      );
+      logger.error({ protocol: "aerodrome", pool: pool.name, error: err instanceof Error ? err.message : err }, "Failed to resolve staking pool");
       return null;
     }
   }));

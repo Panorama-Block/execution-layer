@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { logger } from "../shared/logger";
 
 // ──────────────────────────────────────────────────────────────────
 // EXECUTION TIMEOUT MIDDLEWARE
@@ -34,9 +35,7 @@ export function executionTimeout(ms: number = DEFAULT_TIMEOUT_MS) {
       // Only send 504 if the response hasn't started yet.
       // If headers are already sent, we can't change the status code.
       if (!res.headersSent) {
-        console.error(
-          `[timeout] ${req.method} ${req.path} exceeded ${ms}ms — sending 504`
-        );
+        logger.error({ method: req.method, path: req.path, timeoutMs: ms }, "Request exceeded timeout, sending 504");
         res.status(504).json({
           error: {
             code: "EXECUTION_TIMEOUT",

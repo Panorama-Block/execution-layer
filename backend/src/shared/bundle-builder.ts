@@ -1,5 +1,7 @@
 import { ethers } from "ethers";
 import { PreparedTransaction, TransactionBundle } from "../types/transaction";
+import { getProvider } from "../providers/chain.provider";
+import { logger } from "./logger";
 
 /**
  * Solidity function selectors for adapter actions.
@@ -125,4 +127,51 @@ export class BundleBuilder {
       summary,
     };
   }
+
+  /**
+   * Builds the bundle and estimates gas for each step using the chain's RPC provider.
+   * This avoids MetaMask needing to call eth_estimateGas (which can be rate-limited).
+   * Adds a 30% buffer to the estimate to prevent out-of-gas failures.
+   */
+  async buildWithGas(summary: string, fromAddress: string): Promise<TransactionBundle> {
+    const chainName = CHAIN_ID_TO_NAME[this.chainId];
+    if (!chainName) {
+      logger.warn({ chainId: this.chainId }, "Unknown chainId for gas estimation, returning without gas");
+      return this.build(summary);
+    }
+
+    const provider = getProvider(chainName);
+    const stepsWithGas = await Promise.all(
+      this.steps.map(async (step) => {
+        try {
+          const estimate = await provider.estimateGas({
+            from: fromAddress,
+            to: step.to,
+            data: step.data,
+            value: BigInt(step.value || "0"),
+          });
+          // 30% buffer
+          const buffered = (estimate * 130n) / 100n;
+          return { ...step, gas: `0x${buffered.toString(16)}` };
+        } catch (err) {
+          logger.warn(
+            { step: step.description, error: err instanceof Error ? err.message : "unknown" },
+            "Gas estimation failed for step, returning without gas"
+          );
+          return step;
+        }
+      })
+    );
+
+    return {
+      steps: stepsWithGas,
+      totalSteps: stepsWithGas.length,
+      summary,
+    };
+  }
 }
+
+const CHAIN_ID_TO_NAME: Record<number, string> = {
+  8453: "base",
+  43114: "avalanche",
+};

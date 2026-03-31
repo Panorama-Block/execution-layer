@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { getChainConfig } from "../config/chains";
+import { logger } from "../shared/logger";
 
 // ──────────────────────────────────────────────────────────────────
 // STATIC NETWORK DEFINITIONS
@@ -121,7 +122,7 @@ function createProvider(chain: string): ethers.JsonRpcProvider {
 
   // Single RPC — no failover needed, return as-is
   if (allUrls.length <= 1) {
-    console.log(`[ChainProvider] ${chain}: 1 RPC endpoint (no failover)`);
+    logger.info({ chain, rpcEndpoint: allUrls[0] }, "Single RPC endpoint configured (no failover)");
     return primary;
   }
 
@@ -141,10 +142,14 @@ function createProvider(chain: string): ethers.JsonRpcProvider {
     return fallbackProviders;
   }
 
-  console.log(
-    `[ChainProvider] ${chain}: ${allUrls.length} RPC endpoints configured — ` +
-    `primary: ${allUrls[0].replace(/^https?:\/\//, "").split("/")[0]}, ` +
-    `fallbacks: ${fallbackUrls.map(u => u.replace(/^https?:\/\//, "").split("/")[0]).join(", ")}`
+  logger.info(
+    {
+      chain,
+      totalEndpoints: allUrls.length,
+      primary: allUrls[0].replace(/^https?:\/\//, "").split("/")[0],
+      fallbacks: fallbackUrls.map(u => u.replace(/^https?:\/\//, "").split("/")[0]),
+    },
+    "Multiple RPC endpoints configured with failover",
   );
 
   // ── Override .send() with failover logic ──
@@ -163,13 +168,13 @@ function createProvider(chain: string): ethers.JsonRpcProvider {
         return result;
       } catch (err) {
         markRpcFailed(primaryUrl);
-        console.warn(
-          `[ChainProvider] ${chain} primary RPC failed (${method}): ` +
-          `${err instanceof Error ? err.message : "unknown"}`
+        logger.warn(
+          { chain, method, error: err instanceof Error ? err.message : "unknown" },
+          "Primary RPC failed, falling back",
         );
       }
     } else {
-      console.warn(`[ChainProvider] ${chain} primary RPC is sick — skipping to fallbacks`);
+      logger.warn({ chain, method }, "Primary RPC is sick, skipping to fallbacks");
     }
 
     // ── Step 2: Race all fallbacks in parallel ──
@@ -191,7 +196,7 @@ function createProvider(chain: string): ethers.JsonRpcProvider {
             if (!resolved) {
               resolved = true;
               markRpcHealthy(fbUrl);
-              console.log(`[ChainProvider] ${chain} fallback #${idx + 1} succeeded (${method})`);
+              logger.info({ chain, method, fallbackIndex: idx + 1 }, "Fallback RPC succeeded");
               resolve(result);
             }
           },

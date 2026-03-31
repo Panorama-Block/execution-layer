@@ -1,7 +1,9 @@
 import { ethers } from "ethers";
 import { getContract } from "../../providers/chain.provider";
 import { getProtocolConfig, getUserAdapterAddress } from "../../config/protocols";
+import { encodeProtocolId } from "../../utils/encoding";
 import { AppError } from "../errorCodes";
+import { createCache, getCached, setCache } from "../cache";
 import {
   AERODROME_ROUTER_ABI,
   AERODROME_FACTORY_ABI,
@@ -23,29 +25,27 @@ interface Route {
 }
 
 const BALANCE_CACHE_TTL_MS = 90_000;
-const walletBalanceCache = new Map<string, { value: string; expiresAt: number }>();
+const POOL_TTL_MS          = 600_000;  // 10min — pool addresses are immutable
+const GAUGE_TTL_MS         = 300_000;  // 5min  — gauge can be replaced by governance vote
+const TOKEN_META_TTL_MS    = 3_600_000; // 1h   — symbol/decimals never change
 
-const poolInfoCache = new Map<string, { value: unknown; expiresAt: number }>();
+const walletBalanceCache = createCache<string>();
+const poolAddressCache   = createCache<string>();
+const gaugeAddressCache  = createCache<string>();
+const tokenMetaCache     = createCache<{ symbol: string; decimals: number }>();
+const gaugeRewardCache   = createCache<bigint>();
 
-function getCached(cache: Map<string, { value: unknown; expiresAt: number }>, key: string): unknown | null {
-  const entry = cache.get(key);
-  if (!entry || Date.now() >= entry.expiresAt) {
-    cache.delete(key);
-    return null;
-  }
-  return entry.value;
-}
-
-function setCache(cache: Map<string, { value: unknown; expiresAt: number }>, key: string, value: unknown, ttlMs: number): void {
-  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
-}
+// In-flight dedup maps (same pattern as adapterCache in protocols.ts)
+const poolInFlight  = new Map<string, Promise<string>>();
+const gaugeInFlight = new Map<string, Promise<string>>();
+const tokenMetaInFlight = new Map<string, Promise<{ symbol: string; decimals: number }>>();
 
 function resolveTokenAddress(address: string): string {
   return address === ETH_ADDRESS ? WETH : address;
 }
 
 export class AerodromeService {
-  readonly protocolId = ethers.keccak256(ethers.toUtf8Bytes("aerodrome"));
+  readonly protocolId = encodeProtocolId("aerodrome");
 
   // Delegate to protocols.ts — already has caching + retry + in-flight dedup
   getUserAdapterAddress = getUserAdapterAddress;
@@ -110,18 +110,30 @@ export class AerodromeService {
   // ========== POOL ==========
 
   async getPoolAddress(tokenA: string, tokenB: string, stable: boolean): Promise<string> {
-    // Pool addresses are immutable — cache for 10 minutes
     const a = resolveTokenAddress(tokenA).toLowerCase();
     const b = resolveTokenAddress(tokenB).toLowerCase();
     const cacheKey = `pool:${[a, b].sort().join(":")}:${stable}`;
-    const cached = getCached(poolInfoCache, cacheKey);
-    if (cached) return cached as string;
 
-    const config = getProtocolConfig("aerodrome");
-    const factory = getContract(config.contracts.factory, AERODROME_FACTORY_ABI, CHAIN);
-    const result: string = await factory.getPool(a, b, stable);
-    setCache(poolInfoCache, cacheKey, result, 600_000); // 10min
-    return result;
+    const cached = getCached(poolAddressCache, cacheKey);
+    if (cached) return cached;
+
+    const inFlight = poolInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const request = (async () => {
+      const config = getProtocolConfig("aerodrome");
+      const factory = getContract(config.contracts.factory, AERODROME_FACTORY_ABI, CHAIN);
+      const result: string = await factory.getPool(a, b, stable);
+      setCache(poolAddressCache, cacheKey, result, POOL_TTL_MS);
+      return result;
+    })();
+
+    poolInFlight.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      poolInFlight.delete(cacheKey);
+    }
   }
 
   async resolvePoolAndGauge(poolConfig: {
@@ -157,6 +169,34 @@ export class AerodromeService {
 
   // ========== GAUGE ==========
 
+  async getTokenMetadata(tokenAddress: string): Promise<{ symbol: string; decimals: number }> {
+    const key = tokenAddress.toLowerCase();
+
+    const cached = getCached(tokenMetaCache, key);
+    if (cached) return cached;
+
+    const inFlight = tokenMetaInFlight.get(key);
+    if (inFlight) return inFlight;
+
+    const request = (async () => {
+      const contract = getContract(tokenAddress, ERC20_ABI, CHAIN);
+      const [symbol, decimals] = await Promise.all([
+        contract.symbol() as Promise<string>,
+        contract.decimals() as Promise<bigint>,
+      ]);
+      const meta = { symbol, decimals: Number(decimals) };
+      setCache(tokenMetaCache, key, meta, TOKEN_META_TTL_MS);
+      return meta;
+    })();
+
+    tokenMetaInFlight.set(key, request);
+    try {
+      return await request;
+    } finally {
+      tokenMetaInFlight.delete(key);
+    }
+  }
+
   async getPoolInfo(poolAddress: string): Promise<{
     address: string;
     token0: string;
@@ -174,22 +214,40 @@ export class AerodromeService {
       pool.stable() as Promise<boolean>,
       pool.getReserves() as Promise<[bigint, bigint, bigint]>,
     ]);
-    const t0 = getContract(token0, ERC20_ABI, CHAIN);
-    const t1 = getContract(token1, ERC20_ABI, CHAIN);
-    const [token0Symbol, token1Symbol] = await Promise.all([
-      t0.symbol() as Promise<string>,
-      t1.symbol() as Promise<string>,
+    const [meta0, meta1] = await Promise.all([
+      this.getTokenMetadata(token0),
+      this.getTokenMetadata(token1),
     ]);
     return {
-      address: poolAddress, token0, token1, token0Symbol, token1Symbol,
+      address: poolAddress, token0, token1,
+      token0Symbol: meta0.symbol, token1Symbol: meta1.symbol,
       stable, reserve0: reserves[0].toString(), reserve1: reserves[1].toString(),
     };
   }
 
   async getGaugeForPool(poolAddress: string): Promise<string> {
-    const config = getProtocolConfig("aerodrome");
-    const voter = getContract(config.contracts.voter, VOTER_ABI, CHAIN);
-    return voter.gauges(poolAddress);
+    const cacheKey = `gauge:${poolAddress.toLowerCase()}`;
+
+    const cached = getCached(gaugeAddressCache, cacheKey);
+    if (cached) return cached;
+
+    const inFlight = gaugeInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const request = (async () => {
+      const config = getProtocolConfig("aerodrome");
+      const voter = getContract(config.contracts.voter, VOTER_ABI, CHAIN);
+      const result: string = await voter.gauges(poolAddress);
+      setCache(gaugeAddressCache, cacheKey, result, GAUGE_TTL_MS);
+      return result;
+    })();
+
+    gaugeInFlight.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      gaugeInFlight.delete(cacheKey);
+    }
   }
 
   async getStakedBalance(gaugeAddress: string, adapterAddress: string): Promise<bigint> {
@@ -203,8 +261,14 @@ export class AerodromeService {
   }
 
   async getRewardRate(gaugeAddress: string): Promise<bigint> {
+    const cacheKey = `rewardRate:${gaugeAddress.toLowerCase()}`;
+    const cached = getCached(gaugeRewardCache, cacheKey);
+    if (cached !== null) return cached;
+
     const gauge = getContract(gaugeAddress, GAUGE_ABI, CHAIN);
-    return gauge.rewardRate();
+    const rate: bigint = await gauge.rewardRate();
+    setCache(gaugeRewardCache, cacheKey, rate, 60_000); // 60s TTL
+    return rate;
   }
 
   // ========== ALLOWANCE ==========
@@ -248,17 +312,12 @@ export class AerodromeService {
 
   getWalletBalanceCached(userAddress: string, symbol: string): string | null {
     const key = `${userAddress.toLowerCase()}:${symbol.toUpperCase()}`;
-    const cached = walletBalanceCache.get(key);
-    if (!cached || Date.now() >= cached.expiresAt) {
-      walletBalanceCache.delete(key);
-      return null;
-    }
-    return cached.value;
+    return getCached(walletBalanceCache, key);
   }
 
   setWalletBalanceCached(userAddress: string, symbol: string, value: string): void {
     const key = `${userAddress.toLowerCase()}:${symbol.toUpperCase()}`;
-    walletBalanceCache.set(key, { value, expiresAt: Date.now() + BALANCE_CACHE_TTL_MS });
+    setCache(walletBalanceCache, key, value, BALANCE_CACHE_TTL_MS);
   }
 }
 

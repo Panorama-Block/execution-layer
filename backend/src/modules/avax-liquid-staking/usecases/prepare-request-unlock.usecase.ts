@@ -63,7 +63,7 @@ export async function executePrepareRequestUnlock(req: PrepareRequestUnlockReque
   );
 
   return {
-    bundle: builder.build(`Request unlock ${ethers.formatEther(sAvaxAmount)} sAVAX`),
+    bundle: await builder.buildWithGas(`Request unlock ${ethers.formatEther(sAvaxAmount)} sAVAX`, req.userAddress),
     metadata: {
       action: "requestUnlock",
       sAvaxAmount: sAvaxAmount.toString(),

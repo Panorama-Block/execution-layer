@@ -1,4 +1,5 @@
 import { AppError } from "../shared/errorCodes";
+import { logger } from "../shared/logger";
 
 export interface ProtocolConfig {
   protocolId: string;
@@ -148,10 +149,7 @@ export async function getUserAdapterAddress(userAddress: string, protocolId: str
         adapterCache.set(cacheKey, { value: "", expiresAt: Date.now() + EMPTY_TTL_MS });
         return "";
       }
-      console.warn(
-        `[getUserAdapterAddress] failed:`,
-        err instanceof Error ? err.message : err
-      );
+      logger.warn({ chain, protocol: protocolId, user: userAddress, error: err instanceof Error ? err.message : err }, "Adapter address lookup failed");
     }
     adapterCache.set(cacheKey, { value: "", expiresAt: Date.now() + EMPTY_TTL_MS });
     return "";

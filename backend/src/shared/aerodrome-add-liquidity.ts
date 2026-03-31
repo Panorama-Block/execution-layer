@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { aerodromeService } from "./services/aerodrome.service";
 import { BundleBuilder, ADAPTER_SELECTORS } from "./bundle-builder";
 import { encodeProtocolId, isNativeETH, applySlippage } from "../utils/encoding";
+import { logger } from "./logger";
 
 export interface AerodromeAddLiquidityBundleParams {
   userAddress: string;
@@ -43,29 +44,29 @@ export async function buildAerodromeAddLiquidityBundle(
   const protocolId = encodeProtocolId("aerodrome");
 
   // Check allowances in parallel — each has the provider-level 3.5s timeout.
-  console.log(`[ADD_LIQ] checking 3 allowances in parallel...`);
+  logger.debug({ protocol: "aerodrome", pool: poolName }, "Checking 3 allowances in parallel");
   const [allowanceA, allowanceB, lpAllowance] = await Promise.all([
     !isNativeETH(tokenA.address)
       ? aerodromeService.checkAllowance(tokenA.address, userAddress, executorAddress, amountADesired)
         .catch((e) => {
-          console.error(`[ADD_LIQ] allowance check ${tokenA.symbol} FAILED (+${Date.now() - t0}ms):`, e instanceof Error ? e.message : e);
+          logger.error({ protocol: "aerodrome", token: tokenA.symbol, durationMs: Date.now() - t0, error: e instanceof Error ? e.message : e }, "Allowance check failed");
           return { allowance: 0n, sufficient: false };
         })
       : Promise.resolve({ allowance: ethers.MaxUint256, sufficient: true }),
     !isNativeETH(tokenB.address)
       ? aerodromeService.checkAllowance(tokenB.address, userAddress, executorAddress, amountBDesired)
         .catch((e) => {
-          console.error(`[ADD_LIQ] allowance check ${tokenB.symbol} FAILED (+${Date.now() - t0}ms):`, e instanceof Error ? e.message : e);
+          logger.error({ protocol: "aerodrome", token: tokenB.symbol, durationMs: Date.now() - t0, error: e instanceof Error ? e.message : e }, "Allowance check failed");
           return { allowance: 0n, sufficient: false };
         })
       : Promise.resolve({ allowance: ethers.MaxUint256, sufficient: true }),
     aerodromeService.checkAllowance(poolAddress, userAddress, executorAddress, estimatedLiquidity)
       .catch((e) => {
-        console.error(`[ADD_LIQ] LP allowance check FAILED (+${Date.now() - t0}ms):`, e instanceof Error ? e.message : e);
+        logger.error({ protocol: "aerodrome", token: "LP", durationMs: Date.now() - t0, error: e instanceof Error ? e.message : e }, "LP allowance check failed");
         return { allowance: 0n, sufficient: false };
       }),
   ]);
-  console.log(`[ADD_LIQ] allowances done (+${Date.now() - t0}ms) A=${allowanceA.sufficient} B=${allowanceB.sufficient} LP=${lpAllowance.sufficient}`);
+  logger.info({ protocol: "aerodrome", pool: poolName, durationMs: Date.now() - t0, tokenA: allowanceA.sufficient, tokenB: allowanceB.sufficient, lp: lpAllowance.sufficient }, "Allowances checked");
 
   // Approve tokenA / tokenB
   if (!isNativeETH(tokenA.address)) {

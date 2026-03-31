@@ -84,7 +84,7 @@ export async function executePrepareRepay(req: PrepareRepayRequest): Promise<Pre
   }
 
   return {
-    bundle: builder.build(`Repay ${market.underlyingSymbol} to Benqi on Avalanche`),
+    bundle: await builder.buildWithGas(`Repay ${market.underlyingSymbol} to Benqi on Avalanche`, req.userAddress),
     metadata: {
       action:           "repay",
       qTokenAddress:    req.qTokenAddress,

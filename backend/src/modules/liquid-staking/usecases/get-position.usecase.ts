@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { getEnabledStakingPools } from "../config/staking-pools";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
+import { logger } from "../../../shared/logger";
 
 interface StakingPosition {
   poolId: string;
@@ -49,7 +50,7 @@ export async function executeGetPosition(
     })),
   ]);
 
-  console.log(`[POSITIONS] user=${req.userAddress}, adapter=${userAdapter}, pools=${enabledPools.length}`);
+  logger.info({ protocol: "aerodrome", user: req.userAddress, adapter: userAdapter, pools: enabledPools.length }, "Position lookup started");
 
   // Fetch staking positions sequentially within each pool to avoid RPC rate limiting.
   // All pools still run in parallel (outer Promise.all), but within each pool the three
@@ -68,7 +69,7 @@ export async function executeGetPosition(
           .getTokenBalance(poolAddress, req.userAddress)
           .catch(() => 0n);
 
-        console.log(`[POSITIONS] ${pool.name}: staked=${stakedBalance}, earned=${earnedRewards}, walletLp=${walletLpBalance}`);
+        logger.info({ protocol: "aerodrome", pool: pool.name, staked: stakedBalance.toString(), earned: earnedRewards.toString(), walletLp: walletLpBalance.toString() }, "Position data fetched");
 
         if (stakedBalance > 0n || earnedRewards > 0n || walletLpBalance > 0n) {
           return {

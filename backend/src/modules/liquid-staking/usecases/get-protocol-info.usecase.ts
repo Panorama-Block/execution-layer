@@ -3,7 +3,7 @@ import { getEnabledStakingPools } from "../config/staking-pools";
 import { getContract } from "../../../providers/chain.provider";
 import { GAUGE_ABI, POOL_ABI } from "../../../utils/abi";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
-import { createCache, getCached, setCache } from "../../../shared/cache";
+import { createCache, getCached, getStale, setCache } from "../../../shared/cache";
 
 type DexScreenerMetrics = {
   feeAPR: string | null;
@@ -46,6 +46,12 @@ async function fetchDexScreenerMetrics(poolAddress: string, feeRate: number): Pr
     return result;
   } catch (e) {
     console.error(`[APR-DEXSCREENER] Failed:`, e instanceof Error ? e.message : e);
+    // Return stale value if available
+    const stale = getStale(dexMetricsCache, cacheKey);
+    if (stale) {
+      console.warn(`[APR-DEXSCREENER] Using stale cache for ${poolAddress}`);
+      return stale.value;
+    }
     return { feeAPR: null, tvlUsd: null };
   }
 }
@@ -81,6 +87,7 @@ export interface GetProtocolInfoResponse {
   chain: string;
   pools: PoolInfo[];
   updatedAt: string;
+  stale?: boolean;
 }
 
 let cache: { data: GetProtocolInfoResponse; expiresAt: number } | null = null;
@@ -92,84 +99,93 @@ export async function executeGetProtocolInfo(): Promise<GetProtocolInfoResponse>
     return cache.data;
   }
 
-  console.log("[PROTOCOL-INFO] Cache miss — fetching fresh data from on-chain...");
-  const enabledPools = getEnabledStakingPools();
-  console.log("[PROTOCOL-INFO] Enabled pools:", enabledPools.map(p => p.name).join(", "));
+  try {
+    console.log("[PROTOCOL-INFO] Cache miss — fetching fresh data from on-chain...");
+    const enabledPools = getEnabledStakingPools();
+    console.log("[PROTOCOL-INFO] Enabled pools:", enabledPools.map(p => p.name).join(", "));
 
-  const poolResults = await Promise.all(enabledPools.map(async (pool): Promise<PoolInfo | null> => {
-    try {
-      console.log(`[PROTOCOL-INFO] Processing pool: ${pool.name}`);
-      const { poolAddress, gaugeAddress } = await aerodromeService.withRetry(() =>
-        aerodromeService.resolvePoolAndGauge(pool)
-      );
-      console.log(`[PROTOCOL-INFO]   poolAddress=${poolAddress}, gaugeAddress=${gaugeAddress}`);
+    const poolResults = await Promise.all(enabledPools.map(async (pool): Promise<PoolInfo | null> => {
+      try {
+        console.log(`[PROTOCOL-INFO] Processing pool: ${pool.name}`);
+        const { poolAddress, gaugeAddress } = await aerodromeService.withRetry(() =>
+          aerodromeService.resolvePoolAndGauge(pool)
+        );
+        console.log(`[PROTOCOL-INFO]   poolAddress=${poolAddress}, gaugeAddress=${gaugeAddress}`);
 
-      const feeRate = pool.stable ? 0.0001 : 0.003;
+        const feeRate = pool.stable ? 0.0001 : 0.003;
 
-      // Gauge data cached 60s; DexScreener cached 30s.
-      const gaugeCacheKey = `gauge:${gaugeAddress.toLowerCase()}`;
-      let gaugeData = getCached(gaugeDataCache, gaugeCacheKey);
-      const dexPromise = fetchDexScreenerMetrics(poolAddress, feeRate);
+        // Gauge data cached 60s; DexScreener cached 30s.
+        const gaugeCacheKey = `gauge:${gaugeAddress.toLowerCase()}`;
+        let gaugeData = getCached(gaugeDataCache, gaugeCacheKey);
+        const dexPromise = fetchDexScreenerMetrics(poolAddress, feeRate);
 
-      if (!gaugeData) {
-        const gauge = getContract(gaugeAddress, GAUGE_ABI, "base");
-        const [rewardRate, totalStaked] = await Promise.all([
-          safeGaugeCall(gauge, "rewardRate"),
-          safeGaugeCall(gauge, "totalSupply"),
-        ]);
-        gaugeData = { rewardRate, totalStaked };
-        setCache(gaugeDataCache, gaugeCacheKey, gaugeData, GAUGE_DATA_TTL);
+        if (!gaugeData) {
+          const gauge = getContract(gaugeAddress, GAUGE_ABI, "base");
+          const [rewardRate, totalStaked] = await Promise.all([
+            safeGaugeCall(gauge, "rewardRate"),
+            safeGaugeCall(gauge, "totalSupply"),
+          ]);
+          gaugeData = { rewardRate, totalStaked };
+          setCache(gaugeDataCache, gaugeCacheKey, gaugeData, GAUGE_DATA_TTL);
+        }
+
+        const dexMetrics = await dexPromise;
+        const { rewardRate, totalStaked } = gaugeData;
+
+        let estimatedAPR = "0";
+        let aprSource = "unavailable";
+        let totalLiquidityUsd: string | null = null;
+
+        if (dexMetrics.tvlUsd != null && Number.isFinite(dexMetrics.tvlUsd)) {
+          totalLiquidityUsd = dexMetrics.tvlUsd.toFixed(2);
+        }
+
+        if (dexMetrics.feeAPR) {
+          estimatedAPR = dexMetrics.feeAPR.replace("%", "");
+          aprSource    = "DexScreener fee APR (24h volume × fee rate × 365 / TVL)";
+          console.log(`[PROTOCOL-INFO]   feeAPR=${estimatedAPR}% (DexScreener)`);
+        }
+
+        console.log(`[PROTOCOL-INFO]   estimatedAPR=${estimatedAPR}%`);
+
+        return {
+          poolId: pool.id,
+          poolName: pool.name,
+          poolAddress,
+          gaugeAddress,
+          stable: pool.stable,
+          rewardRatePerSecond: rewardRate.toString(),
+          totalStaked: totalStaked.toString(),
+          estimatedAPR: `${estimatedAPR}%`,
+          aprSource,
+          aprDisclaimer: "Fee APR estimate only. Does not include AERO gauge rewards. Past performance is not indicative of future results.",
+          totalLiquidityUsd,
+        };
+      } catch (err) {
+        console.error(`[PROTOCOL-INFO] Pool ${pool.name} FAILED entirely:`, err instanceof Error ? err.message : err);
+        return null;
       }
+    }));
 
-      const dexMetrics = await dexPromise;
-      const { rewardRate, totalStaked } = gaugeData;
+    const pools = poolResults.filter((p): p is PoolInfo => p !== null);
 
-      let estimatedAPR = "0";
-      let aprSource = "unavailable";
-      let totalLiquidityUsd: string | null = null;
+    console.log(`[PROTOCOL-INFO] Done. ${pools.length} pools resolved. APRs: ${pools.map(p => `${p.poolName}=${p.estimatedAPR}`).join(", ")}`);
 
-      if (dexMetrics.tvlUsd != null && Number.isFinite(dexMetrics.tvlUsd)) {
-        totalLiquidityUsd = dexMetrics.tvlUsd.toFixed(2);
-      }
+    const data: GetProtocolInfoResponse = {
+      protocol: "Aerodrome Finance",
+      chain: "Base (8453)",
+      pools,
+      updatedAt: new Date().toISOString(),
+    };
 
-      if (dexMetrics.feeAPR) {
-        estimatedAPR = dexMetrics.feeAPR.replace("%", "");
-        aprSource    = "DexScreener fee APR (24h volume × fee rate × 365 / TVL)";
-        console.log(`[PROTOCOL-INFO]   feeAPR=${estimatedAPR}% (DexScreener)`);
-      }
-
-      console.log(`[PROTOCOL-INFO]   estimatedAPR=${estimatedAPR}%`);
-
-      return {
-        poolId: pool.id,
-        poolName: pool.name,
-        poolAddress,
-        gaugeAddress,
-        stable: pool.stable,
-        rewardRatePerSecond: rewardRate.toString(),
-        totalStaked: totalStaked.toString(),
-        estimatedAPR: `${estimatedAPR}%`,
-        aprSource,
-        aprDisclaimer: "Fee APR estimate only. Does not include AERO gauge rewards. Past performance is not indicative of future results.",
-        totalLiquidityUsd,
-      };
-    } catch (err) {
-      console.error(`[PROTOCOL-INFO] Pool ${pool.name} FAILED entirely:`, err instanceof Error ? err.message : err);
-      return null;
+    cache = { data, expiresAt: Date.now() + CACHE_TTL };
+    return data;
+  } catch (err) {
+    // On total failure, return stale cache if available
+    if (cache) {
+      console.warn("[PROTOCOL-INFO] Fetch failed, returning stale cache from", cache.data.updatedAt, "—", err instanceof Error ? err.message : err);
+      return { ...cache.data, stale: true };
     }
-  }));
-
-  const pools = poolResults.filter((p): p is PoolInfo => p !== null);
-
-  console.log(`[PROTOCOL-INFO] Done. ${pools.length} pools resolved. APRs: ${pools.map(p => `${p.poolName}=${p.estimatedAPR}`).join(", ")}`);
-
-  const data: GetProtocolInfoResponse = {
-    protocol: "Aerodrome Finance",
-    chain: "Base (8453)",
-    pools,
-    updatedAt: new Date().toISOString(),
-  };
-
-  cache = { data, expiresAt: Date.now() + CACHE_TTL };
-  return data;
+    throw err;
+  }
 }

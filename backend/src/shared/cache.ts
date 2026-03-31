@@ -29,6 +29,17 @@ export function getCached<T>(cache: TTLCache<T>, key: string): T | null {
   return entry.value;
 }
 
+/**
+ * Retrieve a cached value even if expired (stale fallback).
+ * Returns `null` only when the key was never set.
+ * Useful for returning last-known-good data on fetch failure.
+ */
+export function getStale<T>(cache: TTLCache<T>, key: string): { value: T; stale: boolean; expiresAt: number } | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  return { value: entry.value, stale: Date.now() >= entry.expiresAt, expiresAt: entry.expiresAt };
+}
+
 /** Store a value in the cache with a TTL in milliseconds. */
 export function setCache<T>(cache: TTLCache<T>, key: string, value: T, ttlMs: number): void {
   cache.set(key, { value, expiresAt: Date.now() + ttlMs });

@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { getContract } from "../../providers/chain.provider";
 import { getProtocolConfig, getUserAdapterAddress } from "../../config/protocols";
 import { AppError } from "../errorCodes";
+import { createCache, getCached, setCache, type TTLCache } from "../cache";
 import {
   AERODROME_ROUTER_ABI,
   AERODROME_FACTORY_ABI,
@@ -23,22 +24,9 @@ interface Route {
 }
 
 const BALANCE_CACHE_TTL_MS = 90_000;
-const walletBalanceCache = new Map<string, { value: string; expiresAt: number }>();
-
-const poolInfoCache = new Map<string, { value: unknown; expiresAt: number }>();
-
-function getCached(cache: Map<string, { value: unknown; expiresAt: number }>, key: string): unknown | null {
-  const entry = cache.get(key);
-  if (!entry || Date.now() >= entry.expiresAt) {
-    cache.delete(key);
-    return null;
-  }
-  return entry.value;
-}
-
-function setCache(cache: Map<string, { value: unknown; expiresAt: number }>, key: string, value: unknown, ttlMs: number): void {
-  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
-}
+const walletBalanceCache = createCache<string>();
+const poolInfoCache = createCache<string>();
+const gaugeRewardCache = createCache<bigint>();
 
 function resolveTokenAddress(address: string): string {
   return address === ETH_ADDRESS ? WETH : address;
@@ -203,8 +191,14 @@ export class AerodromeService {
   }
 
   async getRewardRate(gaugeAddress: string): Promise<bigint> {
+    const cacheKey = `rewardRate:${gaugeAddress.toLowerCase()}`;
+    const cached = getCached(gaugeRewardCache, cacheKey);
+    if (cached !== null) return cached;
+
     const gauge = getContract(gaugeAddress, GAUGE_ABI, CHAIN);
-    return gauge.rewardRate();
+    const rate: bigint = await gauge.rewardRate();
+    setCache(gaugeRewardCache, cacheKey, rate, 60_000); // 60s TTL
+    return rate;
   }
 
   // ========== ALLOWANCE ==========
@@ -248,17 +242,12 @@ export class AerodromeService {
 
   getWalletBalanceCached(userAddress: string, symbol: string): string | null {
     const key = `${userAddress.toLowerCase()}:${symbol.toUpperCase()}`;
-    const cached = walletBalanceCache.get(key);
-    if (!cached || Date.now() >= cached.expiresAt) {
-      walletBalanceCache.delete(key);
-      return null;
-    }
-    return cached.value;
+    return getCached(walletBalanceCache, key);
   }
 
   setWalletBalanceCached(userAddress: string, symbol: string, value: string): void {
     const key = `${userAddress.toLowerCase()}:${symbol.toUpperCase()}`;
-    walletBalanceCache.set(key, { value, expiresAt: Date.now() + BALANCE_CACHE_TTL_MS });
+    setCache(walletBalanceCache, key, value, BALANCE_CACHE_TTL_MS);
   }
 }
 

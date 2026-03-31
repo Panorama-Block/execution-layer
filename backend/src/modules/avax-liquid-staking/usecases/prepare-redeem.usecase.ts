@@ -47,7 +47,7 @@ export async function executePrepareRedeem(req: PrepareRedeemRequest): Promise<P
   );
 
   return {
-    bundle: builder.build(`Redeem AVAX from unlock request #${req.userUnlockIndex}`),
+    bundle: await builder.buildWithGas(`Redeem AVAX from unlock request #${req.userUnlockIndex}`, req.userAddress),
     metadata: {
       action: "redeem",
       userUnlockIndex: req.userUnlockIndex,

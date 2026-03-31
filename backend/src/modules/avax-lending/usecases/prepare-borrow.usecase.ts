@@ -77,7 +77,7 @@ export async function executePrepareBorrow(req: PrepareBorrowRequest): Promise<P
   }
 
   return {
-    bundle: builder.build(`Borrow ${market.underlyingSymbol} from Benqi on Avalanche`),
+    bundle: await builder.buildWithGas(`Borrow ${market.underlyingSymbol} from Benqi on Avalanche`, req.userAddress),
     metadata: {
       action:           "borrow",
       qTokenAddress:    req.qTokenAddress,

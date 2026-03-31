@@ -237,7 +237,7 @@ forge test -vv --no-match-path "test/fork/*"
 # Fork tests (requires RPC)
 BASE_RPC_URL=https://mainnet.base.org forge test --match-path "test/fork/*" -vvv
 
-# Backend (Vitest) — 138 tests
+# Backend (Vitest) — 187 tests
 cd backend && npm test
 ```
 
@@ -430,3 +430,170 @@ No changes needed to the executor or BundleBuilder core.
 | Testing | Foundry (Solidity), Vitest (TypeScript) |
 | Chains | Base (8453), Avalanche C-Chain (43114) |
 | Protocols | Aerodrome Finance, Trader Joe, Benqi Finance, BENQI sAVAX |
+
+---
+
+## Backend Infrastructure
+
+### Caching (`shared/cache.ts`)
+
+TTL-based cache with stale fallback for graceful degradation:
+
+```typescript
+const myCache = createCache<MyType>();
+setCache(myCache, key, value, 30_000);    // 30s TTL
+const fresh = getCached(myCache, key);     // null if expired
+const stale = getStale(myCache, key);      // { value, stale: true } if expired but exists
+```
+
+**Cache tiers across the backend:**
+
+| Data | TTL | Rationale |
+|---|---|---|
+| Pool addresses | 10 min | Immutable on-chain |
+| Gauge addresses | 5 min | Can change via governance |
+| Token metadata (symbol/decimals) | 1 hour | Never changes |
+| Gauge reward rate | 60s | Updates per epoch |
+| Portfolio per user | 30s | Balances change frequently |
+| DexScreener metrics | 30s | External API |
+| Wallet balances | 90s | Moderate refresh |
+
+All caches use **in-flight dedup** (`Map<string, Promise<T>>`) to prevent thundering herd on concurrent requests for the same key.
+
+### RPC Provider Failover (`providers/chain.provider.ts`)
+
+Multiple free RPC endpoints per chain with automatic failover:
+
+```
+Primary RPC (3.5s timeout)
+    ↓ fail
+Parallel race across fallback RPCs (3.5s each)
+    ↓ fail
+Mark primary as "sick" (30s cooldown), retry next request on fallback
+```
+
+**Default RPCs:**
+- **Base**: LlamaRPC, Base official, dRPC
+- **Avalanche**: Avalanche official, dRPC, MeowRPC
+
+Configured via `BASE_RPC_URLS` / `AVAX_RPC_URLS` (comma-separated). Health tracking with 30s recovery window.
+
+### Structured Logging (`shared/logger.ts`)
+
+Zero-dependency structured logger with per-request trace IDs:
+
+```typescript
+logger.info({ protocol: "aerodrome", pool: "WETH/USDC", durationMs: 45 }, "Quote obtained");
+// → {"level":"info","traceId":"abc-123","protocol":"aerodrome","pool":"WETH/USDC","durationMs":45,"msg":"Quote obtained","ts":"2026-03-30T..."}
+```
+
+- **`AsyncLocalStorage`** propagates `traceId` across async call chains
+- **JSON** output in production, **colored text** in development
+- **Tracing middleware** (`middleware/tracing.ts`) auto-generates UUID per request and logs on response finish
+
+### Rate Limiting (`middleware/rateLimiter.ts`)
+
+Three-tier sliding-window rate limiter:
+
+| Tier | Scope | Window | Max |
+|---|---|---|---|
+| IP | All endpoints | 60s | 60 req |
+| Wallet | Per wallet address | 60s | 30 req |
+| Prepare | `prepare-*` endpoints | 10s | 10 req |
+
+Cascading check: IP → Wallet → Prepare. Expired entries cleaned every 5 minutes.
+
+### Stale Fallback Pattern
+
+On data fetch failure, the backend returns the last known good value instead of erroring:
+
+```
+Fresh fetch succeeds → cache + return
+Fresh fetch fails → check stale cache
+  ├── stale exists → return { ...data, stale: true }
+  └── no stale     → throw error
+```
+
+Applied to: portfolio, protocol info, DexScreener metrics, wallet balances.
+
+### Error Codes (`shared/errorCodes.ts`)
+
+Standardized error responses via `AppError`:
+
+| Category | Codes | HTTP |
+|---|---|---|
+| Validation | `INVALID_ADDRESS`, `INVALID_AMOUNT`, `MISSING_FIELD`, `INVALID_SLIPPAGE` | 400 |
+| Not Found | `POOL_NOT_FOUND`, `GAUGE_NOT_FOUND`, `ORDER_NOT_FOUND` | 404 |
+| Client | `INSUFFICIENT_BALANCE`, `NO_LIQUIDITY`, `NO_LP_POSITION`, `NO_REWARDS` | 400 |
+| Auth | `INVALID_SIGNATURE`, `AUTH_EXPIRED` | 401 |
+| Rate Limit | `RATE_LIMIT_EXCEEDED` | 429 |
+| Server | `RPC_ERROR`, `PROVIDER_ERROR`, `INTERNAL_ERROR` | 500/502 |
+
+### Cross-Chain Routing (Interface Only)
+
+Domain ports for future bridge integration:
+
+- **`domain/ports/RoutingPort.ts`** — aggregator: `getRoutes()`, `executeRoute()`, `getRouteStatus()`
+- **`domain/ports/CrossChainMessagingPort.ts`** — per-protocol adapter (Wormhole, CCIP, LayerZero, LI.FI)
+- **`types/cross-chain.ts`** — shared types: `CrossChainRoute`, `CrossChainFee`, `MessageStatus`, etc.
+
+No implementation yet — interfaces ready for LI.FI or equivalent.
+
+### Middleware Stack
+
+Request pipeline (in order):
+
+```
+tracing → CORS → rateLimiter → serializeByUser → validation → executionTimeout → handler → errorHandler
+```
+
+| Middleware | File | Purpose |
+|---|---|---|
+| `tracingMiddleware` | `middleware/tracing.ts` | UUID traceId per request |
+| `rateLimiter` | `middleware/rateLimiter.ts` | 3-tier rate limiting |
+| `serializeByUser` | `middleware/serialize-by-user.ts` | Queue concurrent requests per wallet |
+| `validation` | `middleware/validation.ts` | Address, amount, tx hash, slippage checks |
+| `executionTimeout` | `middleware/execution-timeout.ts` | 15s hard timeout per request |
+| `errorHandler` | `middleware/errorHandler.ts` | AppError → structured JSON response |
+
+---
+
+## Test Coverage
+
+```bash
+cd backend && npm test
+# 187 tests across 10 test suites
+```
+
+| Suite | Tests | Coverage |
+|---|---|---|
+| `e2e/demo-flow` | 49 | Full H5 demo flow (12 iterations), fallback messaging, bundle invariants |
+| `integration/routes` | 16 | Swap + staking + claim + exit bundles via usecases |
+| `modules/swap/get-quote` | 16 | Auto pool selection, slippage, exchange rate |
+| `modules/swap/prepare-swap` | 11 | Approve logic, ETH handling, metadata |
+| `modules/liquid-staking/prepare-enter` | 10 | Balance capping, liquidity quote, 5-step bundle |
+| `modules/liquid-staking/prepare-exit` | 12 | Partial/full exit, unstake + removeLiquidity |
+| `modules/liquid-staking/prepare-claim` | 8 | Reward check, single-step bundle |
+| `shared/bundle-builder` | 25 | Selectors, approve logic, encode/decode |
+| `shared/aerodrome-add-liquidity` | 11 | Allowance checks, slippage, stake amount |
+| `shared/services/aerodrome.service` | 29 | Caching, in-flight dedup, retry, timeout |
+
+### E2E Demo Flow Test (`__tests__/e2e/demo-flow.test.ts`)
+
+Simulates the canonical H5 user journey **12 times** for determinism:
+
+1. Quote swap (WETH → USDC, auto pool selection)
+2. Prepare swap bundle (approve + execute)
+3. Check portfolio (empty)
+4. Enter staking (addLiquidity + stake)
+5. Check portfolio (has position)
+6. Claim rewards
+7. Exit position (unstake + removeLiquidity)
+8. Check portfolio (empty again)
+
+Plus targeted tests for every common failure mode:
+- **RPC timeout** → fallback to safe defaults (assume 0 allowance, skip balance check)
+- **Insufficient balance** → `INSUFFICIENT_BALANCE` with have/need amounts
+- **Pool not found** → `POOL_NOT_FOUND` with pool ID in message
+- **No liquidity** → `NO_LIQUIDITY` for both auto-quote and enter
+- **No position / No rewards** → `NO_LP_POSITION` / `NO_REWARDS`

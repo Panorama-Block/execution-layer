@@ -102,7 +102,7 @@ export async function executePrepareRedeem(req: PrepareRedeemRequest): Promise<P
   }
 
   return {
-    bundle: builder.build(`Redeem ${market.qTokenSymbol} on Avalanche`),
+    bundle: await builder.buildWithGas(`Redeem ${market.qTokenSymbol} on Avalanche`, req.userAddress),
     metadata: {
       action:           "redeem",
       qTokenAddress:    req.qTokenAddress,

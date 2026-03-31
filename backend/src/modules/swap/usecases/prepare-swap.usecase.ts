@@ -78,7 +78,7 @@ export async function executePrepareSwapBundle(
       : "0";
 
   return {
-    bundle: builder.build(`Swap via Aerodrome (${stable ? "stable" : "volatile"} pool)`),
+    bundle: await builder.buildWithGas(`Swap via Aerodrome (${stable ? "stable" : "volatile"} pool)`, req.userAddress),
     metadata: {
       tokenIn: req.tokenIn,
       tokenOut: req.tokenOut,

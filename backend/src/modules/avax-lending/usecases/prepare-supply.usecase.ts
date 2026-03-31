@@ -87,7 +87,7 @@ export async function executePrepareSupply(req: PrepareSupplyRequest): Promise<P
   }
 
   return {
-    bundle: builder.build(`Supply ${market.underlyingSymbol} to Benqi on Avalanche`),
+    bundle: await builder.buildWithGas(`Supply ${market.underlyingSymbol} to Benqi on Avalanche`, req.userAddress),
     metadata: {
       action:           "supply",
       qTokenAddress:    req.qTokenAddress,

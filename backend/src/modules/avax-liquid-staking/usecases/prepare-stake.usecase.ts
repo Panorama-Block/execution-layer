@@ -49,7 +49,7 @@ export async function executePrepareStake(req: PrepareStakeRequest): Promise<Pre
   );
 
   return {
-    bundle: builder.build(`Stake ${ethers.formatEther(amount)} AVAX for sAVAX`),
+    bundle: await builder.buildWithGas(`Stake ${ethers.formatEther(amount)} AVAX for sAVAX`, req.userAddress),
     metadata: {
       action: "stake",
       avaxAmount: amount.toString(),

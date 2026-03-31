@@ -136,7 +136,7 @@ export async function executePrepareAvaxSwap(
     `Swap via TraderJoe (${swapType})`
   );
 
-  const bundle = builder.build(`Swap ${swapType} via TraderJoe on Avalanche`);
+  const bundle = await builder.buildWithGas(`Swap ${swapType} via TraderJoe on Avalanche`, req.userAddress);
   logger.info({ chain: "avalanche", protocol: "traderjoe", steps: bundle.steps.map(s => ({ to: s.to, value: s.value, dataLen: s.data.length, description: s.description })) }, "Bundle built");
 
   const priceImpact = amountIn > 0n

@@ -61,7 +61,7 @@ export async function executeClaimRewards(
   );
 
   return {
-    bundle: builder.build(`Claim rewards from ${poolConfig.name}`),
+    bundle: await builder.buildWithGas(`Claim rewards from ${poolConfig.name}`, req.userAddress),
     metadata: {
       poolId: poolConfig.id,
       gaugeAddress,

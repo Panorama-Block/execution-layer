@@ -143,7 +143,7 @@ async function _executeEnterStrategyInner(
   logger.info({ protocol: "aerodrome", durationMs: Date.now() - t0 }, "Bundle built");
 
   return {
-    bundle: builder.build(`Enter staking position: ${poolConfig.name}`),
+    bundle: await builder.buildWithGas(`Enter staking position: ${poolConfig.name}`, req.userAddress),
     metadata: {
       poolId: poolConfig.id,
       poolAddress,

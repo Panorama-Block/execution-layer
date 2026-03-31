@@ -144,7 +144,7 @@ export async function executeExitStrategy(
   );
 
   return {
-    bundle: builder.build(`Exit staking position: ${poolConfig.name}`),
+    bundle: await builder.buildWithGas(`Exit staking position: ${poolConfig.name}`, req.userAddress),
     metadata: {
       poolId: poolConfig.id,
       poolAddress,

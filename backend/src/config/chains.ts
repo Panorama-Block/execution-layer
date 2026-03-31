@@ -12,17 +12,22 @@ export interface ChainConfig {
   };
 }
 
-function parseRpcUrls(listEnv: string | undefined, singleEnv: string | undefined, defaultUrl: string): string[] {
+function parseRpcUrls(listEnv: string | undefined, singleEnv: string | undefined, defaults: string[]): string[] {
   if (listEnv) {
     const urls = listEnv.split(",").map(u => u.trim()).filter(Boolean);
     if (urls.length > 0) return urls;
   }
-  return [singleEnv || defaultUrl];
+  if (singleEnv) return [singleEnv];
+  return defaults;
 }
 
 export function getChainConfig(chain: string): ChainConfig {
   if (chain === "base") {
-    const rpcUrls = parseRpcUrls(process.env.BASE_RPC_URLS, process.env.BASE_RPC_URL, "https://mainnet.base.org");
+    const rpcUrls = parseRpcUrls(process.env.BASE_RPC_URLS, process.env.BASE_RPC_URL, [
+      "https://base.llamarpc.com",
+      "https://mainnet.base.org",
+      "https://base.drpc.org",
+    ]);
     return {
       chainId: 8453,
       name: "Base",
@@ -39,7 +44,11 @@ export function getChainConfig(chain: string): ChainConfig {
   }
 
   if (chain === "avalanche") {
-    const rpcUrls = parseRpcUrls(process.env.AVAX_RPC_URLS, process.env.AVAX_RPC_URL, "https://api.avax.network/ext/bc/C/rpc");
+    const rpcUrls = parseRpcUrls(process.env.AVAX_RPC_URLS, process.env.AVAX_RPC_URL, [
+      "https://api.avax.network/ext/bc/C/rpc",
+      "https://avalanche.drpc.org",
+      "https://avax.meowrpc.com",
+    ]);
     return {
       chainId: 43114,
       name: "Avalanche C-Chain",

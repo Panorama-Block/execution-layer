@@ -7,6 +7,7 @@ import { TransactionBundle } from "../../../types/transaction";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
 import { buildAerodromeAddLiquidityBundle } from "../../../shared/aerodrome-add-liquidity";
 import { AppError } from "../../../shared/errorCodes";
+import { logger } from "../../../shared/logger";
 
 export interface PrepareEnterStrategyRequest {
   userAddress: string;
@@ -69,9 +70,7 @@ async function _executeEnterStrategyInner(
   const slippageBps    = req.slippageBps ?? 100;
   const deadlineMinutes = req.deadlineMinutes ?? 20;
 
-  console.log(`[ENTER] user=${req.userAddress}, pool=${req.poolId}`);
-  console.log(`[ENTER] requested amountA=${amountADesired}, amountB=${amountBDesired}`);
-  console.log(`[ENTER] executor=${executorAddress}`);
+  logger.info({ protocol: "aerodrome", user: req.userAddress, pool: req.poolId, amountA: amountADesired.toString(), amountB: amountBDesired.toString(), executor: executorAddress }, "Enter strategy request");
 
   // Cap amounts to user's actual on-chain balance to avoid TransferFromFailed.
   const [balA, balB] = await Promise.all([
@@ -89,8 +88,8 @@ async function _executeEnterStrategyInner(
       : Promise.resolve(amountBDesired),
   ]);
 
-  console.log(`[ENTER] ${poolConfig.tokenA.symbol} balance=${balA}, desired=${amountADesired}, capped=${amountADesired > balA} (+${Date.now() - t0}ms)`);
-  console.log(`[ENTER] ${poolConfig.tokenB.symbol} balance=${balB}, desired=${amountBDesired}, capped=${amountBDesired > balB}`);
+  logger.info({ protocol: "aerodrome", token: poolConfig.tokenA.symbol, balance: balA.toString(), desired: amountADesired.toString(), capped: amountADesired > balA, durationMs: Date.now() - t0 }, "Token A balance check");
+  logger.info({ protocol: "aerodrome", token: poolConfig.tokenB.symbol, balance: balB.toString(), desired: amountBDesired.toString(), capped: amountBDesired > balB }, "Token B balance check");
   if (amountADesired > balA) amountADesired = balA;
   if (amountBDesired > balB) amountBDesired = balB;
 
@@ -99,7 +98,7 @@ async function _executeEnterStrategyInner(
 
   // Resolve pool and gauge addresses (hardcoded in config — instant)
   const { poolAddress, gaugeAddress } = await aerodromeService.resolvePoolAndGauge(poolConfig);
-  console.log(`[ENTER] resolvePoolAndGauge done (+${Date.now() - t0}ms) pool=${poolAddress}, gauge=${gaugeAddress}`);
+  logger.info({ protocol: "aerodrome", poolAddress, gaugeAddress, durationMs: Date.now() - t0 }, "Pool and gauge resolved");
 
   // Query router for optimal amounts based on pool ratio.
   const { optimalA, optimalB, estimatedLiquidity } = await aerodromeService.quoteAddLiquidity(
@@ -109,7 +108,7 @@ async function _executeEnterStrategyInner(
     amountADesired,
     amountBDesired
   );
-  console.log(`[ENTER] quoteAddLiquidity done (+${Date.now() - t0}ms) optA=${optimalA}, optB=${optimalB}, liq=${estimatedLiquidity}`);
+  logger.info({ protocol: "aerodrome", optimalA: optimalA.toString(), optimalB: optimalB.toString(), estimatedLiquidity: estimatedLiquidity.toString(), durationMs: Date.now() - t0 }, "Liquidity quote obtained");
 
   if (estimatedLiquidity === 0n) {
     throw new AppError(
@@ -141,7 +140,7 @@ async function _executeEnterStrategyInner(
     chainId:            chain.chainId,
     poolName:           poolConfig.name,
   });
-  console.log(`[ENTER] buildBundle done (+${Date.now() - t0}ms)`);
+  logger.info({ protocol: "aerodrome", durationMs: Date.now() - t0 }, "Bundle built");
 
   return {
     bundle: builder.build(`Enter staking position: ${poolConfig.name}`),

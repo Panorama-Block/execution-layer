@@ -3,6 +3,7 @@ import { aerodromeService } from "./services/aerodrome.service";
 import { BundleBuilder, ADAPTER_SELECTORS } from "./bundle-builder";
 import { encodeProtocolId, isNativeETH } from "../utils/encoding";
 import { AppError } from "./errorCodes";
+import { logger } from "./logger";
 
 export interface AerodromeSwapBundleParams {
   userAddress: string;
@@ -44,7 +45,7 @@ export async function buildAerodromeSwapBundle(
 
     const allowance = allowanceResult.status === "fulfilled" ? allowanceResult.value.allowance : 0n;
     if (allowanceResult.status === "rejected") {
-      console.warn(`[aerodrome-swap] allowance read failed — assuming 0 (will add approve step): ${(allowanceResult.reason as Error)?.message}`);
+      logger.warn({ protocol: "aerodrome", token: tokenIn, error: (allowanceResult.reason as Error)?.message }, "Allowance read failed, assuming 0");
     }
 
     if (balanceResult.status === "fulfilled") {
@@ -53,7 +54,7 @@ export async function buildAerodromeSwapBundle(
         throw new AppError("INSUFFICIENT_BALANCE", `Have ${balance}, need ${amountIn}`);
       }
     } else {
-      console.warn(`[aerodrome-swap] balance read failed — skipping check, executor will revert if insufficient: ${(balanceResult.reason as Error)?.message}`);
+      logger.warn({ protocol: "aerodrome", token: tokenIn, error: (balanceResult.reason as Error)?.message }, "Balance read failed, skipping check");
     }
 
     builder.addApproveIfNeeded(tokenIn, executorAddress, allowance, amountIn, "Approve token for swap");

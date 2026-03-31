@@ -5,6 +5,7 @@ import { applySlippage, getDeadline, encodeProtocolId } from "../../../utils/enc
 import { BundleBuilder, TRADERJOE_SELECTORS } from "../../../shared/bundle-builder";
 import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
+import { logger } from "../../../shared/logger";
 
 export interface PrepareAvaxSwapRequest {
   userAddress:     string;
@@ -40,17 +41,11 @@ const WAVAX_UNWRAP_ABI = ["function withdraw(uint256 wad) external"];
 export async function executePrepareAvaxSwap(
   req: PrepareAvaxSwapRequest
 ): Promise<PrepareAvaxSwapResponse> {
-  console.log("[avax-swap] prepare request:", JSON.stringify({
-    userAddress: req.userAddress,
-    tokenIn:     req.tokenIn,
-    tokenOut:    req.tokenOut,
-    amountIn:    req.amountIn,
-    slippageBps: req.slippageBps,
-  }));
+  logger.info({ chain: "avalanche", protocol: "traderjoe", user: req.userAddress, tokenIn: req.tokenIn, tokenOut: req.tokenOut, amountIn: req.amountIn, slippageBps: req.slippageBps }, "Prepare swap request");
 
   const chain        = getChainConfig("avalanche");
   const executorAddr = chain.contracts.panoramaExecutor;
-  console.log("[avax-swap] executorAddr:", executorAddr);
+  logger.info({ chain: "avalanche", executor: executorAddr }, "Executor address resolved");
   if (!executorAddr) throw new AppError("INTERNAL_ERROR", "PanoramaExecutor not deployed on Avalanche");
 
   const amountIn     = BigInt(req.amountIn);
@@ -97,17 +92,7 @@ export async function executePrepareAvaxSwap(
   const isAvaxOut = req.tokenOut.toLowerCase() === WAVAX.toLowerCase();
   const swapType  = isAvaxIn ? "avax-to-token" : isAvaxOut ? "token-to-avax" : "token-to-token";
 
-  console.log("[avax-swap] quote:", {
-    path,
-    amountIn:     amountIn.toString(),
-    amountOut:    amountOut.toString(),
-    amountOutMin: amountOutMin.toString(),
-    swapType,
-    isAvaxIn,
-    isAvaxOut,
-    deadline,
-    WAVAX_const:  WAVAX,
-  });
+  logger.info({ chain: "avalanche", protocol: "traderjoe", path, amountIn: amountIn.toString(), amountOut: amountOut.toString(), amountOutMin: amountOutMin.toString(), swapType, isAvaxIn, isAvaxOut, deadline }, "Swap quote obtained");
 
   const protocolId = encodeProtocolId("traderjoe");
   const builder    = new BundleBuilder(chain.chainId);
@@ -138,14 +123,7 @@ export async function executePrepareAvaxSwap(
     [amountIn, amountOutMin, path, req.userAddress]
   );
 
-  console.log("[avax-swap] adapterData:", {
-    selector:     TRADERJOE_SELECTORS.SWAP_WITH_PATH,
-    protocolId,
-    transfers:    transfers.map(t => ({ token: t.token, amount: t.amount.toString() })),
-    ethValue:     ethValue.toString(),
-    executorAddr,
-    adapterData,
-  });
+  logger.info({ chain: "avalanche", protocol: "traderjoe", selector: TRADERJOE_SELECTORS.SWAP_WITH_PATH, protocolId, transfers: transfers.map(t => ({ token: t.token, amount: t.amount.toString() })), ethValue: ethValue.toString() }, "Adapter data encoded");
 
   builder.addExecute(
     protocolId,
@@ -159,9 +137,7 @@ export async function executePrepareAvaxSwap(
   );
 
   const bundle = builder.build(`Swap ${swapType} via TraderJoe on Avalanche`);
-  console.log("[avax-swap] bundle steps:", bundle.steps.map(s => ({
-    to: s.to, value: s.value, dataLen: s.data.length, description: s.description,
-  })));
+  logger.info({ chain: "avalanche", protocol: "traderjoe", steps: bundle.steps.map(s => ({ to: s.to, value: s.value, dataLen: s.data.length, description: s.description })) }, "Bundle built");
 
   const priceImpact = amountIn > 0n
     ? (100 - (Number(amountOut) / Number(amountIn)) * 100).toFixed(4)

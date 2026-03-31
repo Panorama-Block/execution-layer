@@ -5,6 +5,7 @@ import { ERC20_ABI, POOL_ABI } from "../../../utils/abi";
 import { BASE_TOKENS } from "../../../config/protocols";
 import { aerodromeService } from "../../../shared/services/aerodrome.service";
 import { createCache, getCached, setCache, getStale, type TTLCache } from "../../../shared/cache";
+import { logger } from "../../../shared/logger";
 
 interface PortfolioAsset {
   poolId: string;
@@ -52,7 +53,7 @@ export async function executeGetPortfolio(userAddress: string): Promise<GetPortf
     // On failure, return stale cache if available
     const stale = getStale(portfolioCache, cacheKey);
     if (stale) {
-      console.warn(`[PORTFOLIO] Fetch failed for ${userAddress}, returning stale data from ${stale.value.lastUpdated} —`, err instanceof Error ? err.message : err);
+      logger.warn({ protocol: "aerodrome", user: userAddress, lastUpdated: stale.value.lastUpdated, error: err instanceof Error ? err.message : err }, "Fetch failed, returning stale data");
       return { ...stale.value, stale: true };
     }
     throw err;
@@ -82,15 +83,10 @@ async function fetchPortfolioFresh(userAddress: string): Promise<GetPortfolioRes
       const cached = aerodromeService.getWalletBalanceCached(userAddress, symbol);
       if (cached !== null) {
         walletBalances[symbol] = cached;
-        console.warn(
-          `[PORTFOLIO] balance lookup failed for ${symbol} user=${userAddress}; using cached value=${cached}`
-        );
+        logger.warn({ protocol: "aerodrome", user: userAddress, token: symbol, cachedValue: cached }, "Balance lookup failed, using cached value");
         return;
       }
-      console.warn(
-        `[PORTFOLIO] balance lookup failed for ${symbol} user=${userAddress}:`,
-        err instanceof Error ? err.message : err
-      );
+      logger.warn({ protocol: "aerodrome", user: userAddress, token: symbol, error: err instanceof Error ? err.message : err }, "Balance lookup failed, defaulting to 0");
       walletBalances[symbol] = "0";
     }
   });
@@ -109,7 +105,7 @@ async function fetchPortfolioFresh(userAddress: string): Promise<GetPortfolioRes
     Promise.all(poolDataPromises),
   ]);
 
-  console.log(`[PORTFOLIO] user=${userAddress}, adapter=${userAdapter}, resolvedPools=${poolResults.filter(Boolean).length}`);
+  logger.info({ protocol: "aerodrome", user: userAddress, adapter: userAdapter, resolvedPools: poolResults.filter(Boolean).length }, "Portfolio lookup started");
 
   // Fetch staking positions for resolved pools (in parallel)
   const assets: PortfolioAsset[] = [];
@@ -123,7 +119,7 @@ async function fetchPortfolioFresh(userAddress: string): Promise<GetPortfolioRes
         ? await aerodromeService.withRetry(() => aerodromeService.getEarnedRewards(gaugeAddress, userAdapter), 2, 300).catch(() => 0n)
         : 0n;
 
-      console.log(`[PORTFOLIO] ${pool.name}: staked=${totalStaked}, earned=${totalEarned}`);
+      logger.info({ protocol: "aerodrome", pool: pool.name, staked: totalStaked.toString(), earned: totalEarned.toString() }, "Pool position fetched");
 
       if (totalStaked > 0n) {
         const poolContract = getContract(poolAddress, POOL_ABI, "base");

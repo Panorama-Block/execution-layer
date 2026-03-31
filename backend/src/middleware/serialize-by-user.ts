@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { logger } from "../shared/logger";
 
 // ──────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -83,7 +84,7 @@ export function serializeByUser(req: Request, res: Response, next: NextFunction)
   // immediately instead of letting the queue grow unbounded.
   const currentDepth = queueDepth.get(userKey) ?? 0;
   if (currentDepth >= MAX_QUEUE_SIZE) {
-    console.warn(`[serialize] rejecting request for ${userKey.slice(0, 10)}… — queue full (${currentDepth})`);
+    logger.warn({ user: userKey.slice(0, 10), queueDepth: currentDepth }, "Rejecting request, queue full");
     res.status(429).json({
       error: {
         code: "QUEUE_FULL",

@@ -16,6 +16,8 @@ import { avaxLiquidStakingRoutes }   from "./modules/avax-liquid-staking/routes/
 import { errorHandler }              from "./middleware/errorHandler";
 import { rateLimiter } from "./middleware/rateLimiter";
 import { serializeByUser } from "./middleware/serialize-by-user";
+import { tracingMiddleware } from "./middleware/tracing";
+import { logger } from "./shared/logger";
 
 const app = express();
 const PORT = process.env.PORT || 3010;
@@ -26,12 +28,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   : ["http://localhost:3000", "http://localhost:3010", "http://localhost:7777"];
 
 app.use(helmet());
-
-// Request logger — logs every incoming request for local debugging
-app.use((req, _res, next) => {
-  console.log(`[execution-layer] ← ${req.method} ${req.path}`);
-  next();
-});
+app.use(tracingMiddleware);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -69,7 +66,7 @@ app.get("/health", (_req, res) => {
 app.use(errorHandler);
 
 app.listen(PORT, () => {
-  console.log(`execution-service running on port ${PORT}`);
+  logger.info({ port: PORT }, `execution-service running on port ${PORT}`);
 });
 
 export default app;

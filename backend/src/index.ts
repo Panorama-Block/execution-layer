@@ -58,6 +58,16 @@ app.use("/avax/swap", avaxSwapRoutes);
 app.use("/avax/lending", avaxLendingRoutes);
 app.use("/avax/liquid-staking", avaxLiquidStakingRoutes);
 
+// Cloud reverse proxy may forward with /execution prefix without stripping it.
+// Mount all routes under /execution/* so both paths work.
+app.use("/execution/provider/swap", swapProviderRoutes);
+app.use("/execution/staking", stakingRoutes);
+app.use("/execution/swap", swapRoutes);
+app.use("/execution/dca", dcaRoutes);
+app.use("/execution/avax/swap", avaxSwapRoutes);
+app.use("/execution/avax/lending", avaxLendingRoutes);
+app.use("/execution/avax/liquid-staking", avaxLiquidStakingRoutes);
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "execution-service", port: PORT });
 });

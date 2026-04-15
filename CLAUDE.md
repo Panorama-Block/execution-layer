@@ -4,7 +4,7 @@ Guidelines for working with this codebase.
 
 ## Language
 
-Always respond in **Brazilian Portuguese (pt-BR)**.
+Always respond in **English**.
 
 ## Required reading
 

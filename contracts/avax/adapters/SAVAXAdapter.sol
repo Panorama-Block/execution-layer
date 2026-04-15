@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {IStakedAvax} from "../interfaces/IStakedAvax.sol";
+import {IStakeAdapter} from "../../interfaces/IStakeAdapter.sol";
 
 /**
  * @title SAVAXAdapter
@@ -24,7 +25,7 @@ import {IStakedAvax} from "../interfaces/IStakedAvax.sol";
  *        slot 2: _unlockIndices (dynamic array — contract-level unlock indices)
  *        slots 3-52: __gap (50 reserved)
  */
-contract SAVAXAdapter is Initializable {
+contract SAVAXAdapter is Initializable, IStakeAdapter {
     using SafeERC20 for IERC20;
 
     // ========== STORAGE ==========
@@ -76,7 +77,7 @@ contract SAVAXAdapter is Initializable {
      * @param recipient Address to receive sAVAX tokens.
      * @return sAvaxReceived Amount of sAVAX minted.
      */
-    function stake(address recipient) external payable onlyExecutor returns (uint256 sAvaxReceived) {
+    function stake(address recipient) external payable override onlyExecutor returns (uint256 sAvaxReceived) {
         if (msg.value == 0) revert ZeroAmount();
 
         sAvaxReceived = sAvax.submit{value: msg.value}();
@@ -93,7 +94,7 @@ contract SAVAXAdapter is Initializable {
      * @param sAvaxAmount Amount of sAVAX shares to unlock.
      * @return unlockIndex Index in this proxy's unlock list (use for redeem).
      */
-    function requestUnlock(uint256 sAvaxAmount) external onlyExecutor returns (uint256 unlockIndex) {
+    function requestUnlock(uint256 sAvaxAmount) external override onlyExecutor returns (uint256 unlockIndex) {
         if (sAvaxAmount == 0) revert ZeroAmount();
 
         IERC20(address(sAvax)).forceApprove(address(sAvax), sAvaxAmount);
@@ -113,7 +114,7 @@ contract SAVAXAdapter is Initializable {
      * @param unlockIndex Index in this proxy's unlock list (returned by requestUnlock).
      * @param recipient   Address to receive redeemed AVAX.
      */
-    function redeem(uint256 unlockIndex, address recipient) external onlyExecutor {
+    function redeem(uint256 unlockIndex, address recipient) external override onlyExecutor {
         if (unlockIndex >= _unlockIndices.length) revert InvalidUnlockIndex();
 
         uint256 contractIndex = _unlockIndices[unlockIndex];

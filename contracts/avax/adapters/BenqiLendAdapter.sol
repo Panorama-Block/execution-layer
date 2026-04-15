@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {IBenqiToken, IBenqiAVAX, IComptroller} from "../interfaces/IBenqiToken.sol";
+import {ILendAdapter} from "../../interfaces/ILendAdapter.sol";
 
 /**
  * @title BenqiLendAdapter
@@ -26,7 +27,7 @@ import {IBenqiToken, IBenqiAVAX, IComptroller} from "../interfaces/IBenqiToken.s
  *        slot 2: executor (address)
  *        slots 3-52: __gap (50 reserved)
  */
-contract BenqiLendAdapter is Initializable {
+contract BenqiLendAdapter is Initializable, ILendAdapter {
     using SafeERC20 for IERC20;
 
     // ========== STORAGE ==========
@@ -84,7 +85,7 @@ contract BenqiLendAdapter is Initializable {
         address qToken,
         uint256 amount,
         address recipient
-    ) external onlyExecutor returns (uint256 qTokensMinted) {
+    ) external override onlyExecutor returns (uint256 qTokensMinted) {
         if (amount == 0) revert ZeroAmount();
 
         address underlying = IBenqiToken(qToken).underlying();
@@ -111,7 +112,7 @@ contract BenqiLendAdapter is Initializable {
         address qToken,
         uint256 qTokenAmount,
         address recipient
-    ) external onlyExecutor returns (uint256 underlyingReceived) {
+    ) external override onlyExecutor returns (uint256 underlyingReceived) {
         if (qTokenAmount == 0) revert ZeroAmount();
 
         address underlying = IBenqiToken(qToken).underlying();
@@ -139,7 +140,7 @@ contract BenqiLendAdapter is Initializable {
         address qToken,
         uint256 amount,
         address recipient
-    ) external onlyExecutor {
+    ) external override onlyExecutor {
         if (amount == 0) revert ZeroAmount();
 
         address[] memory markets = new address[](1);
@@ -161,7 +162,7 @@ contract BenqiLendAdapter is Initializable {
     function repay(
         address qToken,
         uint256 amount
-    ) external onlyExecutor {
+    ) external override onlyExecutor {
         if (amount == 0) revert ZeroAmount();
 
         address underlying = IBenqiToken(qToken).underlying();
@@ -238,7 +239,7 @@ contract BenqiLendAdapter is Initializable {
      * @notice Enter markets to enable qTokens as collateral.
      * @param qTokens Array of qToken addresses to enter.
      */
-    function enterMarkets(address[] calldata qTokens) external onlyExecutor {
+    function enterMarkets(address[] calldata qTokens) external override onlyExecutor {
         comptroller.enterMarkets(qTokens);
     }
 
@@ -246,7 +247,7 @@ contract BenqiLendAdapter is Initializable {
      * @notice Exit a market (stop using as collateral).
      * @param qToken The qToken address to exit.
      */
-    function exitMarket(address qToken) external onlyExecutor {
+    function exitMarket(address qToken) external override onlyExecutor {
         comptroller.exitMarket(qToken);
     }
 

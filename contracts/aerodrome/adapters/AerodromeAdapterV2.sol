@@ -7,6 +7,8 @@ import {IAerodromeGauge, IAerodromeVoter} from "../interfaces/IAerodromeGauge.so
 import {IERC20} from "../interfaces/IERC20.sol";
 import {SafeTransferLib} from "../libraries/SafeTransferLib.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {ISwapAdapter} from "../../interfaces/ISwapAdapter.sol";
+import {ILPAdapter} from "../../interfaces/ILPAdapter.sol";
 
 /**
  * @title AerodromeAdapterV2
@@ -28,7 +30,7 @@ import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.s
  *        slot 4: executor (address)
  *        slots 5-54: __gap (50 reserved slots for future use)
  */
-contract AerodromeAdapterV2 is IProtocolAdapter, Initializable {
+contract AerodromeAdapterV2 is IProtocolAdapter, ISwapAdapter, ILPAdapter, Initializable {
     using SafeTransferLib for address;
 
     // ========== STORAGE (was immutable in V1) ==========

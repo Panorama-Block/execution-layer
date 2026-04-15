@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ITraderJoeRouter} from "../interfaces/ITraderJoeRouter.sol";
+import {ISwapAdapter} from "../../interfaces/ISwapAdapter.sol";
 
 /**
  * @title TraderJoeAdapter
@@ -26,7 +27,7 @@ import {ITraderJoeRouter} from "../interfaces/ITraderJoeRouter.sol";
  *        slot 2: executor (address)
  *        slots 3-52: __gap (50 reserved)
  */
-contract TraderJoeAdapter is Initializable {
+contract TraderJoeAdapter is Initializable, ISwapAdapter {
     using SafeERC20 for IERC20;
 
     // ========== STORAGE ==========

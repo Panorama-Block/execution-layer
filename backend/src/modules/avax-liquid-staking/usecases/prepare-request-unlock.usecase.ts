@@ -5,6 +5,7 @@ import { encodeProtocolId, getDeadline } from "../../../utils/encoding";
 import { BundleBuilder, SAVAX_SELECTORS } from "../../../shared/bundle-builder";
 import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
+import { S_AVAX_ADDRESS } from "../config/avax-liquid-staking.config";
 
 export interface PrepareRequestUnlockRequest {
   userAddress: string;
@@ -20,8 +21,6 @@ export interface PrepareRequestUnlockResponse {
     cooldownDays: number;
   };
 }
-
-const S_AVAX_ADDRESS = "0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE";
 
 export async function executePrepareRequestUnlock(req: PrepareRequestUnlockRequest): Promise<PrepareRequestUnlockResponse> {
   const chain        = getChainConfig("avalanche");

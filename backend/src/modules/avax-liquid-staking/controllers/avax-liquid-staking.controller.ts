@@ -5,9 +5,7 @@ import { executePrepareRequestUnlock } from "../usecases/prepare-request-unlock.
 import { executePrepareRedeem } from "../usecases/prepare-redeem.usecase";
 import { getContract } from "../../../providers/chain.provider";
 import { STAKED_AVAX_ABI } from "../../../utils/abi";
-
-const S_AVAX_ADDRESS = "0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE";
-const BENQI_APR_URL = "https://api.benqi.fi/liquidstaking/apr";
+import { S_AVAX_ADDRESS, BENQI_APR_URL } from "../config/avax-liquid-staking.config";
 
 // Simple in-memory cache: avoid hitting Benqi API on every position request
 let aprCache: { value: number; expiresAt: number } | null = null;

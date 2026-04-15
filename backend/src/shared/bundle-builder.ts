@@ -38,6 +38,19 @@ export const BENQI_SELECTORS = {
   ENTER_MARKETS: ethers.id("enterMarkets(address[])").slice(0, 10),
 } as const;
 
+// ── Base — MoonwellLendAdapter selectors ────────────────────────────────────
+export const MOONWELL_SELECTORS = {
+  SUPPLY:        ethers.id("supply(address,uint256,address)").slice(0, 10),
+  REDEEM:        ethers.id("redeem(address,uint256,address)").slice(0, 10),
+  BORROW:        ethers.id("borrow(address,uint256,address)").slice(0, 10),
+  REPAY:         ethers.id("repay(address,uint256)").slice(0, 10),
+  SUPPLY_ETH:    ethers.id("supplyETH(address,address)").slice(0, 10),
+  REDEEM_ETH:    ethers.id("redeemETH(address,uint256,address)").slice(0, 10),
+  BORROW_ETH:    ethers.id("borrowETH(address,uint256,address)").slice(0, 10),
+  REPAY_ETH:     ethers.id("repayETH(address)").slice(0, 10),
+  ENTER_MARKETS: ethers.id("enterMarkets(address[])").slice(0, 10),
+} as const;
+
 // ── Avalanche — SAVAXAdapter selectors ──────────────────────────────────────
 export const SAVAX_SELECTORS = {
   STAKE:          ethers.id("stake(address)").slice(0, 10),

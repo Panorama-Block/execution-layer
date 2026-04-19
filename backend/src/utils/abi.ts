@@ -62,6 +62,23 @@ export const TRADER_JOE_ROUTER_ABI = [
   "function swapExactTokensForAVAX(uint256 amountIn, uint256 amountOutMinAVAX, address[] path, address to, uint256 deadline) external returns (uint256[] amounts)",
   "function getAmountsOut(uint256 amountIn, address[] path) external view returns (uint256[] amounts)",
   "function WAVAX() external pure returns (address)",
+  "function factory() external pure returns (address)",
+  "function addLiquidity(address tokenA, address tokenB, uint256 amountADesired, uint256 amountBDesired, uint256 amountAMin, uint256 amountBMin, address to, uint256 deadline) external returns (uint256 amountA, uint256 amountB, uint256 liquidity)",
+  "function addLiquidityAVAX(address token, uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountAVAXMin, address to, uint256 deadline) external payable returns (uint256 amountToken, uint256 amountAVAX, uint256 liquidity)",
+  "function removeLiquidity(address tokenA, address tokenB, uint256 liquidity, uint256 amountAMin, uint256 amountBMin, address to, uint256 deadline) external returns (uint256 amountA, uint256 amountB)",
+  "function removeLiquidityAVAX(address token, uint256 liquidity, uint256 amountTokenMin, uint256 amountAVAXMin, address to, uint256 deadline) external returns (uint256 amountToken, uint256 amountAVAX)",
+] as const;
+
+export const TJ_FACTORY_ABI = [
+  "function getPair(address tokenA, address tokenB) external view returns (address pair)",
+] as const;
+
+export const MASTERCHEF_JOE_ABI = [
+  "function deposit(uint256 pid, uint256 amount) external",
+  "function withdraw(uint256 pid, uint256 amount) external",
+  "function userInfo(uint256 pid, address user) external view returns (uint256 amount, uint256 rewardDebt)",
+  "function pendingTokens(uint256 pid, address user) external view returns (uint256 pendingJoe, address bonusToken, string bonusSymbol, uint256 pendingBonus)",
+  "function joe() external view returns (address)",
 ] as const;
 
 export const BENQI_TOKEN_ABI = [

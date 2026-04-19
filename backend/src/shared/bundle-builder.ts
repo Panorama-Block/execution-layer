@@ -51,6 +51,21 @@ export const MOONWELL_SELECTORS = {
   ENTER_MARKETS: ethers.id("enterMarkets(address[])").slice(0, 10),
 } as const;
 
+// ── Avalanche — TraderJoeLPAdapter selectors (V2) ───────────────────────────
+export const TRADERJOE_LP_SELECTORS = {
+  ADD_LIQUIDITY:
+    ethers.id("addLiquidity(address,address,uint256,uint256,uint256,uint256,address)").slice(0, 10),
+  ADD_LIQUIDITY_AVAX:
+    ethers.id("addLiquidityAVAX(address,uint256,uint256,uint256,address)").slice(0, 10),
+  REMOVE_LIQUIDITY:
+    ethers.id("removeLiquidity(address,address,address,uint256,uint256,uint256,address)").slice(0, 10),
+  REMOVE_LIQUIDITY_AVAX:
+    ethers.id("removeLiquidityAVAX(address,address,uint256,uint256,uint256,address)").slice(0, 10),
+  STAKE:         ethers.id("stake(uint256,uint256,address,address)").slice(0, 10),
+  UNSTAKE:       ethers.id("unstake(uint256,uint256,address,address)").slice(0, 10),
+  CLAIM_REWARDS: ethers.id("claimRewards(uint256,address)").slice(0, 10),
+} as const;
+
 // ── Avalanche — SAVAXAdapter selectors ──────────────────────────────────────
 export const SAVAX_SELECTORS = {
   STAKE:          ethers.id("stake(address)").slice(0, 10),

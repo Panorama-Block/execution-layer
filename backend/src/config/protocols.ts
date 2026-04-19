@@ -69,6 +69,19 @@ const PROTOCOL_REGISTRY: Record<string, ProtocolConfig> = {
       sAvax: "0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE",
     },
   },
+  metronome: {
+    protocolId: "metronome",
+    name: "Metronome Synth",
+    chain: "base",
+    contracts: {
+      pool:             "0xc614136d6c5AB85bc2aCF0ec2652351642d7F54E",
+      poolRegistry:     "0x4372A2b9304296c06197a823f25Cf03119d2Fd82",
+      usdcDepositToken: "0xC7F2f79Daa7Ea4FBbF60b45b5D6028BDE2453476",
+      wethDepositToken: "0x8b581d0013F571a792c3Aa8AF2a0366A309BF51E",
+      msETH:            "0x7Ba6F01772924a82D9626c126347A28299E98c98",
+      msUSD:            "0x526728DBc96689597F85ae4cd716d4f7fCcBAE9d",
+    },
+  },
 };
 
 export function registerProtocol(protocolId: string, config: ProtocolConfig): void {

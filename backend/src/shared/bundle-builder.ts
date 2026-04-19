@@ -45,6 +45,15 @@ export const SAVAX_SELECTORS = {
   REDEEM:         ethers.id("redeem(uint256,address)").slice(0, 10),
 } as const;
 
+// ── Base — MetronomeAdapter selectors (ISynthMintAdapter family) ────────────
+export const METRONOME_SELECTORS = {
+  DEPOSIT_COLLATERAL:  ethers.id("depositCollateral(address,uint256)").slice(0, 10),
+  WITHDRAW_COLLATERAL: ethers.id("withdrawCollateral(address,uint256,address)").slice(0, 10),
+  MINT_SYNTH:          ethers.id("mintSynth(address,uint256,address)").slice(0, 10),
+  REPAY_SYNTH:         ethers.id("repaySynth(address,uint256)").slice(0, 10),
+  UNWIND:              ethers.id("unwind(address,address,address)").slice(0, 10),
+} as const;
+
 export const PANORAMA_EXECUTOR_ABI_EXECUTE = [
   "function execute(bytes32 protocolId, bytes4 action, (address token, uint256 amount)[] transfers, uint256 deadline, bytes data) external payable returns (bytes result)",
 ] as const;

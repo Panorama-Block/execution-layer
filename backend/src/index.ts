@@ -12,6 +12,7 @@ import { swapRoutes }           from "./modules/swap/routes/swap.routes";
 import { dcaRoutes }            from "./modules/dca/routes/dca.routes";
 import { avaxSwapRoutes }       from "./modules/avax-swap/routes/avax-swap.routes";
 import { avaxLendingRoutes }         from "./modules/avax-lending/routes/avax-lending.routes";
+import { avaxLpRoutes }              from "./modules/avax-lp/routes/avax-lp.routes";
 import { avaxLiquidStakingRoutes }   from "./modules/avax-liquid-staking/routes/avax-liquid-staking.routes";
 import { moonwellLendingRoutes }     from "./modules/moonwell-lending/routes/moonwell-lending.routes";
 import { errorHandler }              from "./middleware/errorHandler";
@@ -57,6 +58,7 @@ app.use("/swap", swapRoutes);
 app.use("/dca", dcaRoutes);
 app.use("/avax/swap", avaxSwapRoutes);
 app.use("/avax/lending", avaxLendingRoutes);
+app.use("/avax/lp", avaxLpRoutes);
 app.use("/avax/liquid-staking", avaxLiquidStakingRoutes);
 app.use("/base/lending", moonwellLendingRoutes);
 
@@ -68,6 +70,7 @@ app.use("/execution/swap", swapRoutes);
 app.use("/execution/dca", dcaRoutes);
 app.use("/execution/avax/swap", avaxSwapRoutes);
 app.use("/execution/avax/lending", avaxLendingRoutes);
+app.use("/execution/avax/lp", avaxLpRoutes);
 app.use("/execution/avax/liquid-staking", avaxLiquidStakingRoutes);
 app.use("/execution/base/lending", moonwellLendingRoutes);
 

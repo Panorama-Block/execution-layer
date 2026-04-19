@@ -9,6 +9,14 @@ import { avaxService }              from "../../../shared/services/avax.service"
 import { getContract }              from "../../../providers/chain.provider";
 import { BENQI_TOKEN_ABI }         from "../../../utils/abi";
 
+const SECONDS_PER_YEAR = 31_536_000n;
+const MANTISSA = 1_000_000_000_000_000_000n;
+
+function rateToApyBps(ratePerTimestamp: bigint): number {
+  // Simple APY: rate/s * seconds_per_year, scaled to BPS (1 BPS = 0.01%)
+  return Number(ratePerTimestamp * SECONDS_PER_YEAR * 10_000n / MANTISSA);
+}
+
 export const getMarkets = asyncHandler(async (_req: Request, res: Response) => {
   const markets = getEnabledMarkets();
 
@@ -18,7 +26,13 @@ export const getMarkets = asyncHandler(async (_req: Request, res: Response) => {
         avaxService.getSupplyRate(m.qTokenAddress),
         avaxService.getBorrowRate(m.qTokenAddress),
       ]);
-      return { ...m, supplyRatePerTimestamp: supplyRate.toString(), borrowRatePerTimestamp: borrowRate.toString() };
+      return {
+        ...m,
+        supplyRatePerTimestamp: supplyRate.toString(),
+        borrowRatePerTimestamp: borrowRate.toString(),
+        supplyApyBps: rateToApyBps(supplyRate),
+        borrowApyBps: rateToApyBps(borrowRate),
+      };
     })
   );
 

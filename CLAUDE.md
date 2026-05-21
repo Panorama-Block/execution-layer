@@ -10,6 +10,18 @@ Always respond in **Brazilian Portuguese (pt-BR)**.
 
 Always read `README.md` at the project root before starting any task.
 
+## Architecture Decision Records (ADRs)
+
+Long-lived architectural commitments live in `docs/adr/`. Read these before designing any backend or cross-cutting change:
+
+- [ADR 001 — Backend-first architecture](docs/adr/001-backend-first-architecture.md) — protocol names live only in backend adapters; FE/agents/bot/gateway speak capability vocabulary
+- [ADR 002 — Capability + Provider abstraction](docs/adr/002-capability-provider-abstraction.md) — the five-layer pattern (port → adapter → facade → controller → DI) and canonical vocabulary
+- [ADR 003 — Lane and feature taxonomy](docs/adr/003-lane-feature-taxonomy.md) — the 18 closed Lanes and per-sprint Features used on the PanoramaBlock Planning board
+- [ADR 004 — Layer dependency rules](docs/adr/004-layer-dependency-rules.md) — `shared/capability/` is a sink; no cross-service imports; FE/agents talk HTTP
+- [ADR 005 — Chain onboarding model](docs/adr/005-chain-onboarding-model.md) — chains as manifest files; no chainId literals outside `shared/capability/chains/`
+
+New ADRs go in `docs/adr/00N-<slug>.md` following the same shape (Context / Decision / Consequences / References). Open them via PR with the relevant board card linked.
+
 ## Repository layout
 
 ```

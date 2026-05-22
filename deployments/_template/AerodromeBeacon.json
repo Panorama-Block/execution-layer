@@ -1,0 +1,20 @@
+{
+  "contract": "UpgradeableBeacon",
+  "address": "0x_REPLACE_AFTER_BROADCAST",
+  "deployer": "0x_REPLACE_AFTER_BROADCAST",
+  "chainId": 0,
+  "blockNumber": 0,
+  "txHash": "0x_REPLACE_AFTER_BROADCAST",
+  "deployedAt": "REPLACE_AFTER_BROADCAST",
+  "verified": false,
+  "verifiedUrl": "",
+  "constructorArgs": [
+    "0x_implementation_address",
+    "0x_owner_address"
+  ],
+  "compiler": "0.8.24",
+  "optimizer": { "enabled": true, "runs": 200 },
+  "source": "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol",
+  "deployScript": "script/DeployV2.s.sol",
+  "notes": "OpenZeppelin UpgradeableBeacon. The owner can call beacon.upgradeTo(newImpl) to upgrade all users' BeaconProxies at once. Owner should be a multi-sig in production."
+}

@@ -1,0 +1,23 @@
+{
+  "contract": "AerodromeBeacon",
+  "address": "0x2aea1f20b3f284cfcc37671e5cbe598e8c794d73",
+  "deployer": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561",
+  "chainId": 8453,
+  "blockNumber": 46602420,
+  "txHash": "0x4f57865bcc84a2535cd7b3931120b82a448ab542be49a59d06934e9b5d95b48f",
+  "deployedAt": "2026-05-28T18:50:10.000Z",
+  "verified": false,
+  "verifiedUrl": "https://basescan.org/address/0x2aea1f20b3f284cfcc37671e5cbe598e8c794d73#code",
+  "constructorArgs": [
+    "0xAacf89f8aA544ce09C53B9E283D65467F11bC6EB",
+    "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561"
+  ],
+  "compiler": "0.8.24",
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "source": "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol",
+  "deployScript": "script/DeployV2.s.sol",
+  "notes": "Auto-written by DeployV2.s.sol. Update blockNumber/txHash/deployedAt/verified after broadcast (see deployments/_template/README.md step 5)."
+}

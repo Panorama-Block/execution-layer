@@ -1,0 +1,20 @@
+{
+  "contract": "PanoramaExecutorV2",
+  "address": "0x86fc6a440833b64a646df3b0659682d7b64fc161",
+  "deployer": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561",
+  "chainId": 8453,
+  "blockNumber": 46602421,
+  "txHash": "0x517e0d938363611b3dd432fe6a4f627534a3899c74d17160bad9ee9bb88d6a0e",
+  "deployedAt": "2026-05-28T18:50:10.000Z",
+  "verified": false,
+  "verifiedUrl": "https://basescan.org/address/0x86fc6a440833b64a646df3b0659682d7b64fc161#code",
+  "constructorArgs": [],
+  "compiler": "0.8.24",
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "source": "contracts/aerodrome/core/PanoramaExecutorV2.sol",
+  "deployScript": "script/DeployV2.s.sol",
+  "notes": "Auto-written by DeployV2.s.sol. Update blockNumber/txHash/deployedAt/verified after broadcast (see deployments/_template/README.md step 5)."
+}

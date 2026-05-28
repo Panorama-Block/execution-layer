@@ -1,0 +1,20 @@
+{
+  "contract": "AerodromeAdapterV2",
+  "address": "0xaacf89f8aa544ce09c53b9e283d65467f11bc6eb",
+  "deployer": "0xd6F31c5e32EE78A257A32cB6469BaB3F9fbd7561",
+  "chainId": 8453,
+  "blockNumber": 46602419,
+  "txHash": "0xd444f187b66f2aabc9533a4e8520343ddb8f8b3104e044ff32275314a73a5f0c",
+  "deployedAt": "2026-05-28T18:50:10.000Z",
+  "verified": false,
+  "verifiedUrl": "https://basescan.org/address/0xaacf89f8aa544ce09c53b9e283d65467f11bc6eb#code",
+  "constructorArgs": [],
+  "compiler": "0.8.24",
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "source": "contracts/aerodrome/adapters/AerodromeAdapterV2.sol",
+  "deployScript": "script/DeployV2.s.sol",
+  "notes": "Auto-written by DeployV2.s.sol. Update blockNumber/txHash/deployedAt/verified after broadcast (see deployments/_template/README.md step 5)."
+}

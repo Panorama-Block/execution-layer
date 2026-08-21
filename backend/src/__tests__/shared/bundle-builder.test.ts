@@ -1,5 +1,16 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { ethers } from "ethers";
+
+const { mockEstimateGas } = vi.hoisted(() => ({
+  mockEstimateGas: vi.fn(),
+}));
+
+vi.mock("../../providers/chain.provider", () => ({
+  getProvider: vi.fn(() => ({
+    estimateGas: mockEstimateGas,
+  })),
+}));
+
 import {
   BundleBuilder,
   ADAPTER_SELECTORS,
@@ -72,6 +83,91 @@ describe("BundleBuilder", () => {
   beforeEach(() => {
     builder = new BundleBuilder(CHAIN_ID);
   });
+
+
+describe("buildWithGas", () => {
+  const USER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+
+  beforeEach(() => {
+    mockEstimateGas.mockReset();
+    mockEstimateGas.mockResolvedValue(100_000n);
+  });
+
+  it("estimates gas for a single-step bundle", async () => {
+    builder.addExecute(
+      PROTOCOL_ID,
+      ADAPTER_SELECTORS.SWAP,
+      [],
+      DEADLINE,
+      "0x",
+      0n,
+      EXECUTOR,
+      "Swap"
+    );
+
+    const bundle = await builder.buildWithGas("Single step", USER);
+
+    expect(mockEstimateGas).toHaveBeenCalledTimes(1);
+    expect(bundle.steps[0].gas).toBe("0x1fbd0");
+  });
+
+  it("estimates only the first step of a multi-step bundle", async () => {
+    builder
+      .addApproveIfNeeded(
+        TOKEN_IN,
+        EXECUTOR,
+        0n,
+        1000n,
+        "Approve WETH"
+      )
+      .addExecute(
+        PROTOCOL_ID,
+        ADAPTER_SELECTORS.SWAP,
+        [{ token: TOKEN_IN, amount: 1000n }],
+        DEADLINE,
+        "0x",
+        0n,
+        EXECUTOR,
+        "Swap"
+      );
+
+    const bundle = await builder.buildWithGas(
+      "Approve + Swap",
+      USER
+    );
+
+    expect(bundle.steps).toHaveLength(2);
+    expect(mockEstimateGas).toHaveBeenCalledTimes(1);
+
+    expect(bundle.steps[0].gas).toBe("0x1fbd0");
+    expect(bundle.steps[1].gas).toBeUndefined();
+  });
+
+  it("returns the first step without gas when estimation fails", async () => {
+    mockEstimateGas.mockRejectedValueOnce(
+      new Error("estimation failed")
+    );
+
+    builder.addExecute(
+      PROTOCOL_ID,
+      ADAPTER_SELECTORS.SWAP,
+      [],
+      DEADLINE,
+      "0x",
+      0n,
+      EXECUTOR,
+      "Swap"
+    );
+
+    const bundle = await builder.buildWithGas(
+      "Failed estimate",
+      USER
+    );
+
+    expect(bundle.steps).toHaveLength(1);
+    expect(bundle.steps[0].gas).toBeUndefined();
+  });
+});
 
   // ── addApproveIfNeeded ─────────────────────────────────────────────────────
 

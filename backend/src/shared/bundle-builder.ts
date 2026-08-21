@@ -128,47 +128,94 @@ export class BundleBuilder {
     };
   }
 
-  /**
-   * Builds the bundle and estimates gas for each step using the chain's RPC provider.
-   * This avoids MetaMask needing to call eth_estimateGas (which can be rate-limited).
-   * Adds a 30% buffer to the estimate to prevent out-of-gas failures.
-   */
-  async buildWithGas(summary: string, fromAddress: string): Promise<TransactionBundle> {
-    const chainName = CHAIN_ID_TO_NAME[this.chainId];
-    if (!chainName) {
-      logger.warn({ chainId: this.chainId }, "Unknown chainId for gas estimation, returning without gas");
-      return this.build(summary);
+/**
+ * Builds the bundle and estimates gas where the estimate is valid against
+ * current on-chain state.
+ *
+ * Only the first step can be safely estimated generically. Later steps may
+ * depend on state transitions produced by earlier transactions in the bundle
+ * (for example approve -> execute). eth_estimateGas does not persist state
+ * changes from previous simulations, so independently estimating every step
+ * can produce false reverts.
+ *
+ * Adds a 30% buffer to successful estimates.
+ */
+async buildWithGas(
+  summary: string,
+  fromAddress: string
+): Promise<TransactionBundle> {
+  const chainName = CHAIN_ID_TO_NAME[this.chainId];
+
+  if (!chainName) {
+    logger.warn(
+      { chainId: this.chainId },
+      "Unknown chainId for gas estimation, returning without gas"
+    );
+    return this.build(summary);
+  }
+
+  if (this.steps.length === 0) {
+    return this.build(summary);
+  }
+
+  const provider = getProvider(chainName);
+  const stepsWithGas: PreparedTransaction[] = [];
+
+  for (let index = 0; index < this.steps.length; index++) {
+    const step = this.steps[index];
+
+    /*
+     * Only the first transaction is guaranteed to be estimable against the
+     * current chain state. Subsequent transactions may depend on state changes
+     * made by previous bundle steps.
+     */
+    if (index > 0) {
+      logger.debug(
+        {
+          step: step.description,
+          stepIndex: index,
+          totalSteps: this.steps.length,
+        },
+        "Skipping gas estimation for state-dependent bundle step"
+      );
+
+      stepsWithGas.push(step);
+      continue;
     }
 
-    const provider = getProvider(chainName);
-    const stepsWithGas = await Promise.all(
-      this.steps.map(async (step) => {
-        try {
-          const estimate = await provider.estimateGas({
-            from: fromAddress,
-            to: step.to,
-            data: step.data,
-            value: BigInt(step.value || "0"),
-          });
-          // 30% buffer
-          const buffered = (estimate * 130n) / 100n;
-          return { ...step, gas: `0x${buffered.toString(16)}` };
-        } catch (err) {
-          logger.warn(
-            { step: step.description, error: err instanceof Error ? err.message : "unknown" },
-            "Gas estimation failed for step, returning without gas"
-          );
-          return step;
-        }
-      })
-    );
+    try {
+      const estimate = await provider.estimateGas({
+        from: fromAddress,
+        to: step.to,
+        data: step.data,
+        value: BigInt(step.value || "0"),
+      });
 
-    return {
-      steps: stepsWithGas,
-      totalSteps: stepsWithGas.length,
-      summary,
-    };
+      const buffered = (estimate * 130n) / 100n;
+
+      stepsWithGas.push({
+        ...step,
+        gas: `0x${buffered.toString(16)}`,
+      });
+    } catch (err) {
+      logger.warn(
+        {
+          step: step.description,
+          error: err instanceof Error ? err.message : "unknown",
+        },
+        "Gas estimation failed for first bundle step, returning without gas"
+      );
+
+      stepsWithGas.push(step);
+    }
   }
+
+  return {
+    steps: stepsWithGas,
+    totalSteps: stepsWithGas.length,
+    summary,
+  };
+}
 }
 
 const CHAIN_ID_TO_NAME: Record<number, string> = {

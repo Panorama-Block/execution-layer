@@ -13,6 +13,12 @@ vi.mock("../../../config/chains", () => ({
   })),
 }));
 
+vi.mock("../../../providers/chain.provider", () => ({
+  getProvider: vi.fn(() => ({
+    estimateGas: vi.fn().mockResolvedValue(100_000n),
+  })),
+}));
+
 vi.mock("../../../shared/services/aerodrome.service", () => ({
   aerodromeService: {
     resolvePoolAndGauge: vi.fn(),

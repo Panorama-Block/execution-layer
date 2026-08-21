@@ -3,6 +3,9 @@ import { ethers } from "ethers";
 
 // Mock chain.provider and protocols before importing the service
 vi.mock("../../../providers/chain.provider", () => ({
+  getProvider: vi.fn(() => ({
+    estimateGas: vi.fn().mockResolvedValue(100_000n),
+  })),
   getContract: vi.fn(),
 }));
 

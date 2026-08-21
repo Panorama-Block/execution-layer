@@ -66,6 +66,9 @@ vi.mock("../../modules/liquid-staking/config/staking-pools", () => ({
 
 // Prevent real chain calls from getContract
 vi.mock("../../providers/chain.provider", () => ({
+  getProvider: vi.fn(() => ({
+    estimateGas: vi.fn().mockResolvedValue(100_000n),
+  })),
   getContract: vi.fn(() => ({
     balanceOf: mockBalanceOf,
     getReserves: vi.fn().mockResolvedValue([1_000_000n, 2_000_000n, 0n]),

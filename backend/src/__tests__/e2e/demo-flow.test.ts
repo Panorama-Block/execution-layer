@@ -50,6 +50,9 @@ const { mockBalanceOf, mockGetReserves, mockTotalSupply, mockToken0 } = vi.hoist
 }));
 
 vi.mock("../../providers/chain.provider", () => ({
+  getProvider: vi.fn(() => ({
+    estimateGas: vi.fn().mockResolvedValue(100_000n),
+  })),
   getContract: vi.fn(() => ({
     balanceOf:    mockBalanceOf,
     getReserves:  mockGetReserves,

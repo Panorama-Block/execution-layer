@@ -6,6 +6,12 @@ import { BundleBuilder, TRADERJOE_SELECTORS } from "../../../shared/bundle-build
 import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
 import { logger } from "../../../shared/logger";
+import {
+  createEvidenceCorrelation,
+  persistEvidenceIntent,
+  persistPreparedEvidence,
+  EvidenceIntentInput,
+} from "../../../shared/services/transaction-evidence.service";
 
 export interface PrepareAvaxSwapRequest {
   userAddress:     string;
@@ -17,6 +23,10 @@ export interface PrepareAvaxSwapRequest {
 }
 
 export interface PrepareAvaxSwapResponse {
+  correlationId: string;
+  evidenceVersion: string;
+  evidenceEnabled: boolean;
+  preparedPayloadHash: string;
   bundle:   TransactionBundle;
   metadata: {
     tokenIn:      string;
@@ -57,25 +67,60 @@ export async function executePrepareAvaxSwap(
   const tokenInLower  = req.tokenIn.toLowerCase();
   const tokenOutLower = req.tokenOut.toLowerCase();
 
+  const evidence = createEvidenceCorrelation();
+  const evidenceIntent: EvidenceIntentInput = {
+    correlationId: evidence.correlationId,
+    createdAt: new Date().toISOString(),
+    action: "swap",
+    chainId: chain.chainId,
+    network: "avalanche-c-chain",
+    walletAddress: req.userAddress,
+    assetIn: req.tokenIn,
+    assetOut: req.tokenOut,
+    amountRaw: amountIn.toString(),
+    slippageBps,
+  };
+
+  await persistEvidenceIntent(evidenceIntent);
+
   // ── Wrap: AVAX → WAVAX ──────────────────────────────────────────────
   if (tokenInLower === WAVAX_LOWER && tokenOutLower === WAVAX_LOWER) {
     const iface = new ethers.Interface(WAVAX_WRAP_ABI);
+    const bundle: TransactionBundle = {
+      steps: [{
+        to: WAVAX, data: iface.encodeFunctionData("deposit", []),
+        value: amountIn.toString(), chainId: chain.chainId,
+        description: "Wrap AVAX → WAVAX",
+      }],
+      totalSteps: 1,
+      summary: "Wrap AVAX → WAVAX",
+    };
+
+    const metadata = {
+      tokenIn: req.tokenIn,
+      tokenOut: req.tokenOut,
+      amountIn: amountIn.toString(),
+      amountOut: amountIn.toString(),
+      amountOutMin: amountIn.toString(),
+      path: [WAVAX],
+      swapType: "wrap",
+      slippageBps,
+      priceImpact: "0",
+    };
+
+    const preparedEvidence = await persistPreparedEvidence(
+      evidenceIntent,
+      bundle,
+      metadata
+    );
+
     return {
-      bundle: {
-        steps: [{
-          to: WAVAX, data: iface.encodeFunctionData("deposit", []),
-          value: amountIn.toString(), chainId: chain.chainId,
-          description: "Wrap AVAX → WAVAX",
-        }],
-        totalSteps: 1,
-        summary: "Wrap AVAX → WAVAX",
-      },
-      metadata: {
-        tokenIn: req.tokenIn, tokenOut: req.tokenOut,
-        amountIn: amountIn.toString(), amountOut: amountIn.toString(),
-        amountOutMin: amountIn.toString(), path: [WAVAX],
-        swapType: "wrap", slippageBps, priceImpact: "0",
-      },
+      correlationId: preparedEvidence.correlationId,
+      evidenceVersion: preparedEvidence.evidenceVersion,
+      evidenceEnabled: preparedEvidence.evidenceEnabled,
+      preparedPayloadHash: preparedEvidence.preparedPayloadHash,
+      bundle,
+      metadata,
     };
   }
 
@@ -143,18 +188,30 @@ export async function executePrepareAvaxSwap(
     ? (100 - (Number(amountOut) / Number(amountIn)) * 100).toFixed(4)
     : "0";
 
-  return {
+  const metadata = {
+    tokenIn:      req.tokenIn,
+    tokenOut:     req.tokenOut,
+    amountIn:     amountIn.toString(),
+    amountOut:    amountOut.toString(),
+    amountOutMin: amountOutMin.toString(),
+    path,
+    swapType,
+    slippageBps,
+    priceImpact,
+  };
+
+  const preparedEvidence = await persistPreparedEvidence(
+    evidenceIntent,
     bundle,
-    metadata: {
-      tokenIn:      req.tokenIn,
-      tokenOut:     req.tokenOut,
-      amountIn:     amountIn.toString(),
-      amountOut:    amountOut.toString(),
-      amountOutMin: amountOutMin.toString(),
-      path,
-      swapType,
-      slippageBps,
-      priceImpact,
-    },
+    metadata
+  );
+
+  return {
+    correlationId: preparedEvidence.correlationId,
+    evidenceVersion: preparedEvidence.evidenceVersion,
+    evidenceEnabled: preparedEvidence.evidenceEnabled,
+    preparedPayloadHash: preparedEvidence.preparedPayloadHash,
+    bundle,
+    metadata,
   };
 }

@@ -3,6 +3,12 @@ import { asyncHandler } from "../../../middleware/errorHandler";
 import { executeGetAvaxQuote }    from "../usecases/get-quote.usecase";
 import { executePrepareAvaxSwap } from "../usecases/prepare-swap.usecase";
 import { getEnabledSwapPairs }    from "../config/avax-swap-pairs";
+import {
+  submitAndVerifyEvidence,
+  getTransactionEvidence,
+  exportTransactionEvidence,
+} from "../../../shared/services/transaction-evidence.service";
+import { AppError } from "../../../shared/errorCodes";
 
 export const getQuote = asyncHandler(async (req: Request, res: Response) => {
   const result = await executeGetAvaxQuote({
@@ -29,3 +35,133 @@ export const prepareSwap = asyncHandler(async (req: Request, res: Response) => {
 export const getPairs = asyncHandler(async (_req: Request, res: Response) => {
   res.json({ pairs: getEnabledSwapPairs() });
 });
+
+export const submitEvidence = asyncHandler(async (req: Request, res: Response) => {
+  const { correlationId } = req.params;
+  const { stepIndex, txHash, executionMechanism, providerMetadata } = req.body;
+
+  if (!correlationId || typeof correlationId !== "string") {
+    throw new AppError("MISSING_FIELD", "correlationId is required");
+  }
+
+  if (!Number.isInteger(stepIndex) || stepIndex < 0) {
+    throw new AppError("MISSING_FIELD", "stepIndex must be a non-negative integer");
+  }
+
+  if (typeof txHash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+    throw new AppError("INVALID_TX_HASH");
+  }
+
+  try {
+    const result = await submitAndVerifyEvidence({
+      correlationId,
+      stepIndex,
+      txHash,
+      executionMechanism,
+      providerMetadata,
+      chain: "avalanche",
+    });
+
+    res.json(result);
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+
+    const message =
+      err instanceof Error ? err.message : "Evidence verification failed";
+
+    if (message.includes("not found")) {
+      throw new AppError("TRANSACTION_NOT_FOUND", message);
+    }
+
+    throw new AppError("INTERNAL_ERROR", message);
+  }
+});
+
+export const getEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { correlationId } = req.params;
+
+    if (!correlationId || typeof correlationId !== "string") {
+      throw new AppError(
+        "MISSING_FIELD",
+        "correlationId is required"
+      );
+    }
+
+    try {
+      const evidence =
+        await getTransactionEvidence(correlationId);
+
+      res.json(evidence);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Evidence retrieval failed";
+
+      if (message.includes("not found")) {
+        throw new AppError(
+          "TRANSACTION_NOT_FOUND",
+          message
+        );
+      }
+
+      throw new AppError(
+        "INTERNAL_ERROR",
+        message
+      );
+    }
+  }
+);
+
+export const exportEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { correlationId } = req.params;
+
+    if (!correlationId || typeof correlationId !== "string") {
+      throw new AppError(
+        "MISSING_FIELD",
+        "correlationId is required"
+      );
+    }
+
+    try {
+      const evidenceExport =
+        await exportTransactionEvidence(
+          correlationId
+        );
+
+      res.setHeader(
+        "Content-Type",
+        "application/json"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="panoramablock-evidence-${correlationId}.json"`
+      );
+
+      res.json(evidenceExport);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Evidence export failed";
+
+      if (message.includes("not found")) {
+        throw new AppError(
+          "TRANSACTION_NOT_FOUND",
+          message
+        );
+      }
+
+      throw new AppError(
+        "INTERNAL_ERROR",
+        message
+      );
+    }
+  }
+);
+

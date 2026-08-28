@@ -46,3 +46,44 @@ avaxSwapRoutes.post(
   executionTimeout(),
   ctrl.prepareSwap
 );
+
+/**
+ * POST /avax/swap/evidence/:correlationId/submissions
+ * Records a client-broadcast transaction hash and independently verifies
+ * the transaction/receipt through the backend's read-only Avalanche RPC.
+ *
+ * Body: {
+ *   stepIndex,
+ *   txHash,
+ *   executionMechanism?,
+ *   providerMetadata?
+ * }
+ */
+avaxSwapRoutes.post(
+  "/evidence/:correlationId/submissions",
+  validateRequired("stepIndex", "txHash"),
+  executionTimeout(),
+  ctrl.submitEvidence
+);
+
+/**
+ * GET /avax/swap/evidence/:correlationId
+ * Returns the complete durable evidence chain from the DB.
+ */
+avaxSwapRoutes.get(
+  "/evidence/:correlationId",
+  executionTimeout(),
+  ctrl.getEvidence
+);
+
+/**
+ * GET /avax/swap/evidence/:correlationId/export
+ * Returns deterministic sanitised DB-derived JSON suitable
+ * for independent verification and archival.
+ */
+avaxSwapRoutes.get(
+  "/evidence/:correlationId/export",
+  executionTimeout(),
+  ctrl.exportEvidence
+);
+

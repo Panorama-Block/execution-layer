@@ -81,6 +81,19 @@ avaxSwapRoutes.get(
 );
 
 /**
+ * GET /avax/swap/evidence/admin/status/:userAddress
+ * Returns whether the authenticated wallet has Phase 2 admin capability.
+ * Requires wallet signature authentication.
+ */
+avaxSwapRoutes.get(
+  "/evidence/admin/status/:userAddress",
+  validateAddress("userAddress", "params"),
+  requireWalletAuth,
+  executionTimeout(),
+  ctrl.getEvidenceAdminStatus
+);
+
+/**
  * GET /avax/swap/evidence/admin/export/:userAddress
  * Returns an admin-wide Avalanche evidence export.
  * Requires wallet signature authentication and Phase 2 admin allowlist membership.

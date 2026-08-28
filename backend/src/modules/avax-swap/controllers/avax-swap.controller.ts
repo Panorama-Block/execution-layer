@@ -207,6 +207,18 @@ export const exportEvidenceByWallet = asyncHandler(
 );
 
 
+export const getEvidenceAdminStatus = asyncHandler(
+  async (req: Request, res: Response) => {
+    const verifiedAddress =
+      (req as any).verifiedAddress as string;
+
+    res.json({
+      isAdmin: isPhase2EvidenceAdmin(verifiedAddress),
+    });
+  }
+);
+
+
 export const exportEvidenceAdmin = asyncHandler(
   async (req: Request, res: Response) => {
     const verifiedAddress =

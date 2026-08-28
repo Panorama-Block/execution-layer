@@ -7,6 +7,7 @@ import {
   submitAndVerifyEvidence,
   getTransactionEvidence,
   exportTransactionEvidence,
+  exportTransactionEvidenceByWallet,
 } from "../../../shared/services/transaction-evidence.service";
 import { AppError } from "../../../shared/errorCodes";
 
@@ -165,3 +166,40 @@ export const exportEvidence = asyncHandler(
   }
 );
 
+
+export const exportEvidenceByWallet = asyncHandler(
+  async (req: Request, res: Response) => {
+    const verifiedAddress =
+      (req as any).verifiedAddress as string;
+
+    try {
+      const evidenceExport =
+        await exportTransactionEvidenceByWallet(
+          verifiedAddress,
+          43114
+        );
+
+      res.setHeader(
+        "Content-Type",
+        "application/json"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="panoramablock-avalanche-evidence-${verifiedAddress.toLowerCase()}.json"`
+      );
+
+      res.json(evidenceExport);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Bulk evidence export failed";
+
+      throw new AppError(
+        "INTERNAL_ERROR",
+        message
+      );
+    }
+  }
+);

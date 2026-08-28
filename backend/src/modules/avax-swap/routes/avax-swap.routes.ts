@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { validateAddress, validateAmount, validateSlippage, validateRequired } from "../../../middleware/validation";
+import { requireWalletAuth } from "../../../middleware/auth";
 import { executionTimeout } from "../../../middleware/execution-timeout";
 import * as ctrl from "../controllers/avax-swap.controller";
 
@@ -64,6 +65,19 @@ avaxSwapRoutes.post(
   validateRequired("stepIndex", "txHash"),
   executionTimeout(),
   ctrl.submitEvidence
+);
+
+/**
+ * GET /avax/swap/evidence/export/:userAddress
+ * Returns a wallet-scoped bulk evidence export.
+ * Requires wallet signature authentication.
+ */
+avaxSwapRoutes.get(
+  "/evidence/export/:userAddress",
+  validateAddress("userAddress", "params"),
+  requireWalletAuth,
+  executionTimeout(),
+  ctrl.exportEvidenceByWallet
 );
 
 /**

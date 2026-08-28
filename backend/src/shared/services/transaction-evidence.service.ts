@@ -347,6 +347,15 @@ interface GatewayEnvelope<T> {
   data: T;
 }
 
+interface GatewayListEnvelope<T> {
+  data: T[];
+  page?: {
+    take?: number;
+    skip?: number;
+    nextCursor?: Record<string, unknown> | null;
+  };
+}
+
 interface StoredEvidence {
   correlationId: string;
   evidenceVersion: string;
@@ -472,6 +481,83 @@ async function gatewayGet<T>(path: string): Promise<T> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function gatewayList<T>(
+  path: string
+): Promise<GatewayListEnvelope<T>> {
+  const config = gatewayConfig();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+
+  try {
+    const response = await fetch(`${config.url}${path}`, {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        "X-Tenant-Id": config.tenantId,
+      },
+    });
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(
+        `Database Gateway ${response.status}: ${text.slice(0, 500)}`
+      );
+    }
+
+    const parsed = text ? JSON.parse(text) : null;
+
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      !Array.isArray((parsed as GatewayListEnvelope<T>).data)
+    ) {
+      throw new Error("Database Gateway returned an invalid list response");
+    }
+
+    return parsed as GatewayListEnvelope<T>;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function listStoredEvidenceByWallet(
+  walletAddress: string,
+  chainId = 43114
+): Promise<StoredEvidence[]> {
+  const records: StoredEvidence[] = [];
+  const take = 1000;
+  let skip = 0;
+
+  while (true) {
+    const where = encodeURIComponent(
+      JSON.stringify({
+        walletAddress: walletAddress.toLowerCase(),
+        chainId,
+      })
+    );
+    const orderBy = encodeURIComponent(
+      JSON.stringify({ createdAt: "asc" })
+    );
+
+    const result = await gatewayList<StoredEvidence>(
+      `/v1/transaction-evidence?where=${where}&orderBy=${orderBy}&take=${take}&skip=${skip}`
+    );
+
+    records.push(...result.data);
+
+    if (result.data.length < take) {
+      break;
+    }
+
+    skip += take;
+  }
+
+  return records;
 }
 
 async function gatewayPatch(
@@ -986,6 +1072,72 @@ export async function exportTransactionEvidence(
       algorithm: "keccak256",
       canonicalisation: "fixed-field-order-json-v1",
       hash: integrityHash,
+    },
+  };
+}
+
+export async function exportTransactionEvidenceByWallet(
+  walletAddress: string,
+  chainId = 43114
+) {
+  const evidenceRecords =
+    await listStoredEvidenceByWallet(walletAddress, chainId);
+
+  const records = await Promise.all(
+    evidenceRecords.map((record) =>
+      exportTransactionEvidence(record.correlationId)
+    )
+  );
+
+  records.sort((a, b) =>
+    a.correlationId.localeCompare(b.correlationId)
+  );
+
+  const snapshotAt =
+    records
+      .map((record) => record.export.exportedAt)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1) || null;
+
+  const stepCount = records.reduce(
+    (total, record) => total + record.steps.length,
+    0
+  );
+
+  const verifiedCount = records.filter(
+    (record) =>
+      record.lifecycle.verificationStatus === "verified"
+  ).length;
+
+  const payload = {
+    schemaVersion: EVIDENCE_VERSION,
+
+    export: {
+      type: "bulk-transaction-evidence",
+      snapshotAt,
+      source: "panoramablock-database-gateway",
+      filters: {
+        walletAddress: walletAddress.toLowerCase(),
+        chainId,
+      },
+    },
+
+    records,
+
+    summary: {
+      correlationCount: records.length,
+      stepCount,
+      verifiedCount,
+    },
+  };
+
+  return {
+    ...payload,
+    integrity: {
+      algorithm: "keccak256",
+      canonicalisation: "fixed-field-order-json-v1",
+      hash: hashJson(payload),
     },
   };
 }

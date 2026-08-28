@@ -8,6 +8,8 @@ import {
   getTransactionEvidence,
   exportTransactionEvidence,
   exportTransactionEvidenceByWallet,
+  exportTransactionEvidenceAdmin,
+  isPhase2EvidenceAdmin,
 } from "../../../shared/services/transaction-evidence.service";
 import { AppError } from "../../../shared/errorCodes";
 
@@ -195,6 +197,49 @@ export const exportEvidenceByWallet = asyncHandler(
         err instanceof Error
           ? err.message
           : "Bulk evidence export failed";
+
+      throw new AppError(
+        "INTERNAL_ERROR",
+        message
+      );
+    }
+  }
+);
+
+
+export const exportEvidenceAdmin = asyncHandler(
+  async (req: Request, res: Response) => {
+    const verifiedAddress =
+      (req as any).verifiedAddress as string;
+
+    if (!isPhase2EvidenceAdmin(verifiedAddress)) {
+      throw new AppError("PHASE2_ADMIN_FORBIDDEN");
+    }
+
+    try {
+      const evidenceExport =
+        await exportTransactionEvidenceAdmin(43114);
+
+      res.setHeader(
+        "Content-Type",
+        "application/json"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="panoramablock-avalanche-admin-evidence.json"`
+      );
+
+      res.json(evidenceExport);
+    } catch (err) {
+      if (err instanceof AppError) {
+        throw err;
+      }
+
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Administrative evidence export failed";
 
       throw new AppError(
         "INTERNAL_ERROR",

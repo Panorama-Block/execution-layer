@@ -39,6 +39,17 @@ function evidenceEnabled(): boolean {
   return process.env.PHASE2_EVIDENCE_ENABLED === "true";
 }
 
+export function isPhase2EvidenceAdmin(walletAddress: string): boolean {
+  const configured = process.env.PHASE2_ADMIN_WALLETS || "";
+
+  const admins = configured
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  return admins.includes(walletAddress.trim().toLowerCase());
+}
+
 function gatewayConfig(): {
   url: string;
   token: string;
@@ -539,6 +550,37 @@ async function listStoredEvidenceByWallet(
         walletAddress: walletAddress.toLowerCase(),
         chainId,
       })
+    );
+    const orderBy = encodeURIComponent(
+      JSON.stringify({ createdAt: "asc" })
+    );
+
+    const result = await gatewayList<StoredEvidence>(
+      `/v1/transaction-evidence?where=${where}&orderBy=${orderBy}&take=${take}&skip=${skip}`
+    );
+
+    records.push(...result.data);
+
+    if (result.data.length < take) {
+      break;
+    }
+
+    skip += take;
+  }
+
+  return records;
+}
+
+async function listStoredEvidenceByChain(
+  chainId = 43114
+): Promise<StoredEvidence[]> {
+  const records: StoredEvidence[] = [];
+  const take = 1000;
+  let skip = 0;
+
+  while (true) {
+    const where = encodeURIComponent(
+      JSON.stringify({ chainId })
     );
     const orderBy = encodeURIComponent(
       JSON.stringify({ createdAt: "asc" })
@@ -1129,6 +1171,78 @@ export async function exportTransactionEvidenceByWallet(
       correlationCount: records.length,
       stepCount,
       verifiedCount,
+    },
+  };
+
+  return {
+    ...payload,
+    integrity: {
+      algorithm: "keccak256",
+      canonicalisation: "fixed-field-order-json-v1",
+      hash: hashJson(payload),
+    },
+  };
+}
+
+export async function exportTransactionEvidenceAdmin(
+  chainId = 43114
+) {
+  const evidenceRecords =
+    await listStoredEvidenceByChain(chainId);
+
+  const records = await Promise.all(
+    evidenceRecords.map((record) =>
+      exportTransactionEvidence(record.correlationId)
+    )
+  );
+
+  records.sort((a, b) =>
+    a.correlationId.localeCompare(b.correlationId)
+  );
+
+  const snapshotAt =
+    records
+      .map((record) => record.export.exportedAt)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1) || null;
+
+  const stepCount = records.reduce(
+    (total, record) => total + record.steps.length,
+    0
+  );
+
+  const verifiedCount = records.filter(
+    (record) =>
+      record.lifecycle.verificationStatus === "verified"
+  ).length;
+
+  const walletCount = new Set(
+    records
+      .map((record) => record.intent.walletAddress)
+      .filter(Boolean)
+      .map((value) => value.toLowerCase())
+  ).size;
+
+  const payload = {
+    schemaVersion: EVIDENCE_VERSION,
+
+    export: {
+      type: "admin-bulk-transaction-evidence",
+      snapshotAt,
+      source: "panoramablock-database-gateway",
+      filters: {
+        chainId,
+      },
+    },
+
+    records,
+
+    summary: {
+      correlationCount: records.length,
+      stepCount,
+      verifiedCount,
+      walletCount,
     },
   };
 

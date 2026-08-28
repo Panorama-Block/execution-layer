@@ -81,6 +81,19 @@ avaxSwapRoutes.get(
 );
 
 /**
+ * GET /avax/swap/evidence/admin/export/:userAddress
+ * Returns an admin-wide Avalanche evidence export.
+ * Requires wallet signature authentication and Phase 2 admin allowlist membership.
+ */
+avaxSwapRoutes.get(
+  "/evidence/admin/export/:userAddress",
+  validateAddress("userAddress", "params"),
+  requireWalletAuth,
+  executionTimeout(),
+  ctrl.exportEvidenceAdmin
+);
+
+/**
  * GET /avax/swap/evidence/:correlationId
  * Returns the complete durable evidence chain from the DB.
  */

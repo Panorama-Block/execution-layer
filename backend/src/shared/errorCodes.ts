@@ -27,6 +27,7 @@ export const ErrorCodes = {
   // Auth errors (401)
   INVALID_SIGNATURE: { code: "INVALID_SIGNATURE", status: 401, message: "Invalid or missing wallet signature" },
   AUTH_EXPIRED: { code: "AUTH_EXPIRED", status: 401, message: "Authentication timestamp expired (5 minute window)" },
+  PHASE2_ADMIN_FORBIDDEN: { code: "PHASE2_ADMIN_FORBIDDEN", status: 403, message: "Wallet is not authorised for Phase 2 administrative evidence export" },
 
   // Rate limiting (429)
   RATE_LIMIT_EXCEEDED: { code: "RATE_LIMIT_EXCEEDED", status: 429, message: "Too many requests, please try again later" },

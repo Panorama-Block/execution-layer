@@ -458,7 +458,17 @@ async function gatewayGet<T>(path: string): Promise<T> {
     }
 
     const parsed = text ? JSON.parse(text) : null;
-    return (parsed as GatewayEnvelope<T>).data;
+
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      "data" in parsed
+    ) {
+      return (parsed as GatewayEnvelope<T>).data;
+    }
+
+    return parsed as T;
   } finally {
     clearTimeout(timer);
   }

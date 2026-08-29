@@ -7,11 +7,8 @@ import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
 import { logger } from "../../../shared/logger";
 import {
-  createEvidenceCorrelation,
-  persistEvidenceIntent,
-  persistPreparedEvidence,
-  EvidenceIntentInput,
-} from "../../../shared/services/transaction-evidence.service";
+  prepareEvidenceBoundBundle,
+} from "../../../shared/services/evidence-bound-preparation.service";
 
 export interface PrepareAvaxSwapRequest {
   userAddress:     string;
@@ -67,21 +64,18 @@ export async function executePrepareAvaxSwap(
   const tokenInLower  = req.tokenIn.toLowerCase();
   const tokenOutLower = req.tokenOut.toLowerCase();
 
-  const evidence = createEvidenceCorrelation();
-  const evidenceIntent: EvidenceIntentInput = {
-    correlationId: evidence.correlationId,
-    createdAt: new Date().toISOString(),
-    action: "swap",
-    chainId: chain.chainId,
-    network: "avalanche-c-chain",
-    walletAddress: req.userAddress,
-    assetIn: req.tokenIn,
-    assetOut: req.tokenOut,
-    amountRaw: amountIn.toString(),
-    slippageBps,
-  };
-
-  await persistEvidenceIntent(evidenceIntent);
+  return prepareEvidenceBoundBundle({
+    intent: {
+      action: "swap",
+      chainId: chain.chainId,
+      network: "avalanche-c-chain",
+      walletAddress: req.userAddress,
+      assetIn: req.tokenIn,
+      assetOut: req.tokenOut,
+      amountRaw: amountIn.toString(),
+      slippageBps,
+    },
+    prepare: async () => {
 
   // ── Wrap: AVAX → WAVAX ──────────────────────────────────────────────
   if (tokenInLower === WAVAX_LOWER && tokenOutLower === WAVAX_LOWER) {
@@ -108,17 +102,7 @@ export async function executePrepareAvaxSwap(
       priceImpact: "0",
     };
 
-    const preparedEvidence = await persistPreparedEvidence(
-      evidenceIntent,
-      bundle,
-      metadata
-    );
-
     return {
-      correlationId: preparedEvidence.correlationId,
-      evidenceVersion: preparedEvidence.evidenceVersion,
-      evidenceEnabled: preparedEvidence.evidenceEnabled,
-      preparedPayloadHash: preparedEvidence.preparedPayloadHash,
       bundle,
       metadata,
     };
@@ -200,18 +184,10 @@ export async function executePrepareAvaxSwap(
     priceImpact,
   };
 
-  const preparedEvidence = await persistPreparedEvidence(
-    evidenceIntent,
-    bundle,
-    metadata
-  );
-
   return {
-    correlationId: preparedEvidence.correlationId,
-    evidenceVersion: preparedEvidence.evidenceVersion,
-    evidenceEnabled: preparedEvidence.evidenceEnabled,
-    preparedPayloadHash: preparedEvidence.preparedPayloadHash,
     bundle,
     metadata,
   };
+    },
+  });
 }

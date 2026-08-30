@@ -14,7 +14,9 @@ import {
 import { AppError } from "../../../shared/errorCodes";
 import {
   beginAvaxBridgeEvidence,
+  beginAvaxBridgeDestinationEvidence,
   commitAvaxBridgeEvidence,
+  commitAvaxBridgeDestinationEvidence,
 } from "../services/bridge-evidence.service";
 
 export const getQuote = asyncHandler(async (req: Request, res: Response) => {
@@ -74,6 +76,51 @@ export const commitBridgeEvidence = asyncHandler(
       provider: req.body.provider,
       steps: req.body.steps,
     });
+
+    res.json(result);
+  }
+);
+
+export const beginBridgeDestinationEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const result =
+      await beginAvaxBridgeDestinationEvidence({
+        userAddress: req.body.userAddress,
+        sourceChainId: Number(
+          req.body.sourceChainId
+        ),
+        destinationToken:
+          req.body.destinationToken,
+        amountRaw: req.body.amountRaw,
+      });
+
+    res.json(result);
+  }
+);
+
+export const commitBridgeDestinationEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { correlationId } = req.params;
+
+    if (
+      !correlationId ||
+      typeof correlationId !== "string"
+    ) {
+      throw new AppError(
+        "MISSING_FIELD",
+        "correlationId is required"
+      );
+    }
+
+    const result =
+      await commitAvaxBridgeDestinationEvidence({
+        correlationId,
+        sourceChainId: Number(
+          req.body.sourceChainId
+        ),
+        provider: req.body.provider,
+        steps: req.body.steps,
+      });
 
     res.json(result);
   }

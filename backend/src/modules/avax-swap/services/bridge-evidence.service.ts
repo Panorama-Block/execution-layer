@@ -232,3 +232,220 @@ export async function commitAvaxBridgeEvidence(
     }
   );
 }
+
+export interface BeginAvaxBridgeDestinationEvidenceInput {
+  userAddress: string;
+  sourceChainId: number;
+  destinationToken: string;
+  amountRaw: string;
+}
+
+export interface CommitAvaxBridgeDestinationEvidenceInput {
+  correlationId: string;
+  sourceChainId: number;
+  provider: string;
+  steps: PreparedTransaction[];
+}
+
+function bridgeDestinationAction(sourceChainId: number): string {
+  return `bridge-destination:${sourceChainId}`;
+}
+
+export async function beginAvaxBridgeDestinationEvidence(
+  input: BeginAvaxBridgeDestinationEvidenceInput
+): Promise<BeginAvaxBridgeEvidenceResult> {
+  if (
+    !Number.isInteger(input.sourceChainId) ||
+    input.sourceChainId <= 0 ||
+    input.sourceChainId === AVALANCHE_CHAIN_ID
+  ) {
+    throw new Error(
+      "Avalanche bridge destination evidence requires a different valid source chain"
+    );
+  }
+
+  if (
+    typeof input.userAddress !== "string" ||
+    !isEvmAddress(input.userAddress)
+  ) {
+    throw new Error(
+      "A valid destination wallet address is required"
+    );
+  }
+
+  if (
+    typeof input.destinationToken !== "string" ||
+    !isEvmAddress(input.destinationToken)
+  ) {
+    throw new Error(
+      "A valid Avalanche destination token is required"
+    );
+  }
+
+  if (
+    typeof input.amountRaw !== "string" ||
+    !/^[0-9]+$/.test(input.amountRaw) ||
+    BigInt(input.amountRaw) <= 0n
+  ) {
+    throw new Error(
+      "A positive raw bridge amount is required"
+    );
+  }
+
+  const evidence = createEvidenceCorrelation();
+
+  const intent: EvidenceIntentInput = {
+    correlationId: evidence.correlationId,
+    createdAt: new Date().toISOString(),
+    action: bridgeDestinationAction(
+      input.sourceChainId
+    ),
+    chainId: AVALANCHE_CHAIN_ID,
+    network: AVALANCHE_NETWORK,
+    walletAddress: input.userAddress,
+    assetOut: input.destinationToken,
+    amountRaw: input.amountRaw,
+  };
+
+  await persistEvidenceIntent(intent);
+
+  return {
+    correlationId: evidence.correlationId,
+    evidenceVersion: evidence.evidenceVersion,
+    evidenceEnabled: evidence.enabled,
+  };
+}
+
+export async function commitAvaxBridgeDestinationEvidence(
+  input: CommitAvaxBridgeDestinationEvidenceInput
+): Promise<PreparedEvidenceResult> {
+  if (
+    !Number.isInteger(input.sourceChainId) ||
+    input.sourceChainId <= 0 ||
+    input.sourceChainId === AVALANCHE_CHAIN_ID
+  ) {
+    throw new Error(
+      "Avalanche bridge destination evidence requires a different valid source chain"
+    );
+  }
+
+  if (
+    typeof input.provider !== "string" ||
+    !input.provider.trim()
+  ) {
+    throw new Error("Bridge provider is required");
+  }
+
+  if (
+    !Array.isArray(input.steps) ||
+    input.steps.length === 0
+  ) {
+    throw new Error(
+      "Avalanche bridge destination evidence requires at least one transaction"
+    );
+  }
+
+  if (
+    input.steps.some(
+      (step) =>
+        Number(step.chainId) !==
+        AVALANCHE_CHAIN_ID
+    )
+  ) {
+    throw new Error(
+      "Avalanche bridge destination evidence may only commit chain 43114 transactions"
+    );
+  }
+
+  const stored = await getTransactionEvidence(
+    input.correlationId
+  );
+
+  const evidence = stored.evidence as any;
+
+  const expectedAction =
+    bridgeDestinationAction(
+      input.sourceChainId
+    );
+
+  if (
+    Number(evidence.chainId) !==
+    AVALANCHE_CHAIN_ID
+  ) {
+    throw new Error(
+      "Persisted evidence intent is not an Avalanche destination operation"
+    );
+  }
+
+  if (evidence.action !== expectedAction) {
+    throw new Error(
+      "Bridge source does not match persisted destination evidence intent"
+    );
+  }
+
+  if (
+    evidence.status &&
+    evidence.status !== "intent-recorded"
+  ) {
+    throw new Error(
+      `Bridge destination evidence cannot be prepared from status ${evidence.status}`
+    );
+  }
+
+  if (
+    Array.isArray(stored.steps) &&
+    stored.steps.length > 0
+  ) {
+    throw new Error(
+      "Bridge destination evidence already contains prepared transaction steps"
+    );
+  }
+
+  const createdAt =
+    typeof evidence.createdAt === "string"
+      ? evidence.createdAt
+      : typeof evidence.intent?.requestTimestamp ===
+          "string"
+        ? evidence.intent.requestTimestamp
+        : undefined;
+
+  if (!createdAt) {
+    throw new Error(
+      "Persisted bridge destination evidence intent is missing its creation timestamp"
+    );
+  }
+
+  const persistedIntent: EvidenceIntentInput = {
+    correlationId: input.correlationId,
+    createdAt,
+    action: evidence.action,
+    chainId: Number(evidence.chainId),
+    network: evidence.network,
+    walletAddress: evidence.walletAddress,
+    assetIn: evidence.assetIn || undefined,
+    assetOut: evidence.assetOut || undefined,
+    amountRaw: evidence.amountRaw || undefined,
+    slippageBps:
+      typeof evidence.slippageBps === "number"
+        ? evidence.slippageBps
+        : undefined,
+  };
+
+  const bundle: TransactionBundle = {
+    steps: input.steps,
+    totalSteps: input.steps.length,
+    summary:
+      `Avalanche bridge destination via ${input.provider} ` +
+      `from chain ${input.sourceChainId}`,
+  };
+
+  return persistPreparedEvidence(
+    persistedIntent,
+    bundle,
+    {
+      action: "bridge-destination",
+      sourceChainId: input.sourceChainId,
+      provider: input.provider,
+    }
+  );
+}

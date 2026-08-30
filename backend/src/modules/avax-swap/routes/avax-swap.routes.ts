@@ -102,6 +102,43 @@ avaxSwapRoutes.post(
 );
 
 /**
+ * POST /avax/swap/bridge/destination/evidence/intent
+ *
+ * T1 boundary for Avalanche destination execution prepared
+ * client-side by a cross-chain provider.
+ */
+avaxSwapRoutes.post(
+  "/bridge/destination/evidence/intent",
+  validateRequired(
+    "userAddress",
+    "sourceChainId",
+    "destinationToken",
+    "amountRaw"
+  ),
+  validateAddress("userAddress"),
+  validateAddress("destinationToken"),
+  executionTimeout(),
+  ctrl.beginBridgeDestinationEvidence
+);
+
+/**
+ * POST /avax/swap/bridge/destination/evidence/:correlationId/prepare
+ *
+ * Commits the exact ordered Avalanche destination suffix before
+ * PanoramaBlock signs any destination-chain transaction.
+ */
+avaxSwapRoutes.post(
+  "/bridge/destination/evidence/:correlationId/prepare",
+  validateRequired(
+    "sourceChainId",
+    "provider",
+    "steps"
+  ),
+  executionTimeout(),
+  ctrl.commitBridgeDestinationEvidence
+);
+
+/**
  * POST /avax/swap/evidence/:correlationId/submissions
  * Records a client-broadcast transaction hash and independently verifies
  * the transaction/receipt through the backend's read-only Avalanche RPC.

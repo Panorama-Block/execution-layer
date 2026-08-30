@@ -12,6 +12,10 @@ import {
   isPhase2EvidenceAdmin,
 } from "../../../shared/services/transaction-evidence.service";
 import { AppError } from "../../../shared/errorCodes";
+import {
+  beginAvaxBridgeEvidence,
+  commitAvaxBridgeEvidence,
+} from "../services/bridge-evidence.service";
 
 export const getQuote = asyncHandler(async (req: Request, res: Response) => {
   const result = await executeGetAvaxQuote({
@@ -38,6 +42,42 @@ export const prepareSwap = asyncHandler(async (req: Request, res: Response) => {
 export const getPairs = asyncHandler(async (_req: Request, res: Response) => {
   res.json({ pairs: getEnabledSwapPairs() });
 });
+
+export const beginBridgeEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const result = await beginAvaxBridgeEvidence({
+      userAddress: req.body.userAddress,
+      destinationChainId: Number(req.body.destinationChainId),
+      sourceToken: req.body.sourceToken,
+      destinationToken: req.body.destinationToken,
+      amountRaw: req.body.amountRaw,
+    });
+
+    res.json(result);
+  }
+);
+
+export const commitBridgeEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { correlationId } = req.params;
+
+    if (!correlationId || typeof correlationId !== "string") {
+      throw new AppError(
+        "MISSING_FIELD",
+        "correlationId is required"
+      );
+    }
+
+    const result = await commitAvaxBridgeEvidence({
+      correlationId,
+      destinationChainId: Number(req.body.destinationChainId),
+      provider: req.body.provider,
+      steps: req.body.steps,
+    });
+
+    res.json(result);
+  }
+);
 
 export const submitEvidence = asyncHandler(async (req: Request, res: Response) => {
   const { correlationId } = req.params;

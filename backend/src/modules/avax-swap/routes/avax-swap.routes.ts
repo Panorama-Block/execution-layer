@@ -49,6 +49,59 @@ avaxSwapRoutes.post(
 );
 
 /**
+ * POST /avax/swap/bridge/evidence/intent
+ *
+ * T1 boundary for client-prepared Avalanche bridge operations.
+ * Persists the source-chain intent before Thirdweb/LayerSwap
+ * transaction preparation occurs.
+ *
+ * Body: {
+ *   userAddress,
+ *   destinationChainId,
+ *   sourceToken,
+ *   destinationToken?,
+ *   amountRaw
+ * }
+ */
+avaxSwapRoutes.post(
+  "/bridge/evidence/intent",
+  validateRequired(
+    "userAddress",
+    "destinationChainId",
+    "sourceToken",
+    "amountRaw"
+  ),
+  validateAddress("userAddress"),
+  validateAddress("sourceToken"),
+  executionTimeout(),
+  ctrl.beginBridgeEvidence
+);
+
+/**
+ * POST /avax/swap/bridge/evidence/:correlationId/prepare
+ *
+ * T3 boundary for client-prepared Avalanche bridge operations.
+ * Commits the exact ordered source transaction bundle after provider
+ * preparation and before the first wallet signature.
+ *
+ * Body: {
+ *   destinationChainId,
+ *   provider,
+ *   steps
+ * }
+ */
+avaxSwapRoutes.post(
+  "/bridge/evidence/:correlationId/prepare",
+  validateRequired(
+    "destinationChainId",
+    "provider",
+    "steps"
+  ),
+  executionTimeout(),
+  ctrl.commitBridgeEvidence
+);
+
+/**
  * POST /avax/swap/evidence/:correlationId/submissions
  * Records a client-broadcast transaction hash and independently verifies
  * the transaction/receipt through the backend's read-only Avalanche RPC.

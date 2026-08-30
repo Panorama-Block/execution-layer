@@ -8,6 +8,10 @@ import { getEnabledMarkets }        from "../config/avax-lending-markets";
 import { avaxService }              from "../../../shared/services/avax.service";
 import { getContract }              from "../../../providers/chain.provider";
 import { BENQI_TOKEN_ABI }         from "../../../utils/abi";
+import {
+  submitAndVerifyEvidence,
+} from "../../../shared/services/transaction-evidence.service";
+import { AppError } from "../../../shared/errorCodes";
 
 export const getMarkets = asyncHandler(async (_req: Request, res: Response) => {
   const markets = getEnabledMarkets();
@@ -59,6 +63,71 @@ export const prepareSupply = asyncHandler(async (req: Request, res: Response) =>
     amount:        req.body.amount,
   });
   res.json(result);
+});
+
+export const submitEvidence = asyncHandler(async (req: Request, res: Response) => {
+  const { correlationId } = req.params;
+  const {
+    stepIndex,
+    txHash,
+    executionMechanism,
+    providerMetadata,
+  } = req.body;
+
+  if (!correlationId || typeof correlationId !== "string") {
+    throw new AppError(
+      "MISSING_FIELD",
+      "correlationId is required"
+    );
+  }
+
+  if (!Number.isInteger(stepIndex) || stepIndex < 0) {
+    throw new AppError(
+      "MISSING_FIELD",
+      "stepIndex must be a non-negative integer"
+    );
+  }
+
+  if (
+    typeof txHash !== "string" ||
+    !/^0x[a-fA-F0-9]{64}$/.test(txHash)
+  ) {
+    throw new AppError("INVALID_TX_HASH");
+  }
+
+  try {
+    const result = await submitAndVerifyEvidence({
+      correlationId,
+      stepIndex,
+      txHash,
+      executionMechanism,
+      providerMetadata,
+      chain: "avalanche",
+    });
+
+    res.json(result);
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Evidence verification failed";
+
+    if (message.includes("not found")) {
+      throw new AppError(
+        "TRANSACTION_NOT_FOUND",
+        message
+      );
+    }
+
+    throw new AppError(
+      "INTERNAL_ERROR",
+      message
+    );
+  }
 });
 
 export const prepareRedeem = asyncHandler(async (req: Request, res: Response) => {

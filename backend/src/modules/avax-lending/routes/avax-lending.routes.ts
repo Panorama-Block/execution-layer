@@ -39,6 +39,18 @@ avaxLendingRoutes.post(
 );
 
 /**
+ * POST /avax/lending/evidence/:correlationId/submissions
+ * Records a submitted lending transaction and independently verifies
+ * its Avalanche receipt against the prepared evidence commitment.
+ *
+ * Body: { stepIndex, txHash, executionMechanism?, providerMetadata? }
+ */
+avaxLendingRoutes.post(
+  "/evidence/:correlationId/submissions",
+  ctrl.submitEvidence
+);
+
+/**
  * POST /avax/lending/prepare-redeem
  * Prepares a TransactionBundle to redeem qTokens for underlying.
  * Steps: [approve qToken] + [redeem / redeemAVAX]

@@ -536,45 +536,10 @@ async function gatewayList<T>(
   }
 }
 
-async function listStoredEvidenceByWallet(
-  walletAddress: string,
-  chainId = 43114
-): Promise<StoredEvidence[]> {
-  const records: StoredEvidence[] = [];
-  const take = 1000;
-  let skip = 0;
-
-  while (true) {
-    const where = encodeURIComponent(
-      JSON.stringify({
-        walletAddress: walletAddress.toLowerCase(),
-        chainId,
-      })
-    );
-    const orderBy = encodeURIComponent(
-      JSON.stringify({ createdAt: "asc" })
-    );
-
-    const result = await gatewayList<StoredEvidence>(
-      `/v1/transaction-evidence?where=${where}&orderBy=${orderBy}&take=${take}&skip=${skip}`
-    );
-
-    records.push(...result.data);
-
-    if (result.data.length < take) {
-      break;
-    }
-
-    skip += take;
-  }
-
-  return records;
-}
-
-async function listStoredEvidenceByChain(
-  chainId = 43114
-): Promise<StoredEvidence[]> {
-  const records: StoredEvidence[] = [];
+async function listParticipatingCorrelationIdsByChain(
+  chainId: number
+): Promise<string[]> {
+  const correlationIds = new Set<string>();
   const take = 1000;
   let skip = 0;
 
@@ -583,14 +548,19 @@ async function listStoredEvidenceByChain(
       JSON.stringify({ chainId })
     );
     const orderBy = encodeURIComponent(
-      JSON.stringify({ createdAt: "asc" })
+      JSON.stringify({
+        correlationId: "asc",
+        stepIndex: "asc",
+      })
     );
 
-    const result = await gatewayList<StoredEvidence>(
-      `/v1/transaction-evidence?where=${where}&orderBy=${orderBy}&take=${take}&skip=${skip}`
+    const result = await gatewayList<StoredEvidenceStep>(
+      `/v1/transaction-evidence-steps?where=${where}&orderBy=${orderBy}&take=${take}&skip=${skip}`
     );
 
-    records.push(...result.data);
+    for (const step of result.data) {
+      correlationIds.add(step.correlationId);
+    }
 
     if (result.data.length < take) {
       break;
@@ -599,7 +569,56 @@ async function listStoredEvidenceByChain(
     skip += take;
   }
 
+  return Array.from(correlationIds).sort();
+}
+
+async function listStoredEvidenceByWallet(
+  walletAddress: string,
+  chainId = 43114
+): Promise<StoredEvidence[]> {
+  const correlationIds =
+    await listParticipatingCorrelationIdsByChain(chainId);
+
+  if (correlationIds.length === 0) {
+    return [];
+  }
+
+  const records: StoredEvidence[] = [];
+  const expectedWalletAddress = walletAddress.toLowerCase();
+
+  for (const correlationId of correlationIds) {
+    const record = await gatewayGet<StoredEvidence>(
+      `/v1/transaction-evidence/${encodeURIComponent(correlationId)}`
+    );
+
+    if (
+      record &&
+      record.walletAddress.toLowerCase() === expectedWalletAddress
+    ) {
+      records.push(record);
+    }
+  }
+
   return records;
+}
+
+async function listStoredEvidenceByChain(
+  chainId = 43114
+): Promise<StoredEvidence[]> {
+  const correlationIds =
+    await listParticipatingCorrelationIdsByChain(chainId);
+
+  const records = await Promise.all(
+    correlationIds.map((correlationId) =>
+      gatewayGet<StoredEvidence>(
+        `/v1/transaction-evidence/${encodeURIComponent(correlationId)}`
+      )
+    )
+  );
+
+  return records.filter(
+    (record): record is StoredEvidence => Boolean(record)
+  );
 }
 
 async function gatewayPatch(

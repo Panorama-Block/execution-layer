@@ -55,7 +55,8 @@ avaxLendingRoutes.post(
  * Prepares a TransactionBundle to redeem qTokens for underlying.
  * Steps: [approve qToken] + [redeem / redeemAVAX]
  *
- * Body: { userAddress, qTokenAddress, qTokenAmount }
+ * Body: { userAddress, qTokenAddress, amount }
+ * amount is the requested underlying amount in underlying base units.
  */
 avaxLendingRoutes.post(
   "/prepare-redeem",

@@ -2,19 +2,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockSubmitAndVerifyEvidence,
+  mockVerifyEvidenceStep,
 } = vi.hoisted(() => ({
   mockSubmitAndVerifyEvidence: vi.fn(),
+  mockVerifyEvidenceStep: vi.fn(),
 }));
 
 vi.mock(
   "../../../shared/services/transaction-evidence.service",
   () => ({
     submitAndVerifyEvidence: mockSubmitAndVerifyEvidence,
+    verifyEvidenceStep: mockVerifyEvidenceStep,
   })
 );
 
 import {
   submitEvidence,
+  verifyEvidence,
 } from "../../../modules/avax-lending/controllers/avax-lending.controller";
 
 function invokeHandler(
@@ -51,6 +55,14 @@ describe("Avalanche lending evidence submission", () => {
     vi.clearAllMocks();
 
     mockSubmitAndVerifyEvidence.mockResolvedValue({
+      correlationId: "corr-123",
+      stepIndex: 0,
+      txHash:
+        "0x1111111111111111111111111111111111111111111111111111111111111111",
+      verified: true,
+    });
+
+    mockVerifyEvidenceStep.mockResolvedValue({
       correlationId: "corr-123",
       stepIndex: 0,
       txHash:
@@ -104,4 +116,40 @@ describe("Avalanche lending evidence submission", () => {
       verified: true,
     });
   });
+  it(
+    "re-verifies persisted evidence without accepting a transaction hash",
+    async () => {
+      const { json } = await invokeHandler(
+        verifyEvidence,
+        {
+          params: {
+            correlationId: "corr-123",
+          },
+          body: {
+            stepIndex: 0,
+          },
+        }
+      );
+
+      expect(
+        mockVerifyEvidenceStep
+      ).toHaveBeenCalledTimes(1);
+
+      expect(
+        mockVerifyEvidenceStep
+      ).toHaveBeenCalledWith({
+        correlationId: "corr-123",
+        stepIndex: 0,
+      });
+
+      expect(json).toHaveBeenCalledWith({
+        correlationId: "corr-123",
+        stepIndex: 0,
+        txHash:
+          "0x1111111111111111111111111111111111111111111111111111111111111111",
+        verified: true,
+      });
+    }
+  );
+
 });

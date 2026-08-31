@@ -158,6 +158,22 @@ avaxSwapRoutes.post(
 );
 
 /**
+ * POST /avax/swap/evidence/:correlationId/verifications
+ * Independently re-verifies the persisted submitted transaction.
+ *
+ * Body: { stepIndex }
+ *
+ * txHash is deliberately not accepted. Verification is bound to
+ * the immutable transaction hash already persisted for the step.
+ */
+avaxSwapRoutes.post(
+  "/evidence/:correlationId/verifications",
+  validateRequired("stepIndex"),
+  executionTimeout(),
+  ctrl.verifyEvidence
+);
+
+/**
  * GET /avax/swap/evidence/export/:userAddress
  * Returns a wallet-scoped bulk evidence export.
  * Requires wallet signature authentication.

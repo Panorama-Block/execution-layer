@@ -10,6 +10,7 @@ import { getContract }              from "../../../providers/chain.provider";
 import { BENQI_TOKEN_ABI }         from "../../../utils/abi";
 import {
   submitAndVerifyEvidence,
+  verifyEvidenceStep,
 } from "../../../shared/services/transaction-evidence.service";
 import { AppError } from "../../../shared/errorCodes";
 
@@ -129,6 +130,66 @@ export const submitEvidence = asyncHandler(async (req: Request, res: Response) =
     );
   }
 });
+
+
+export const verifyEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { correlationId } = req.params;
+    const { stepIndex } = req.body;
+
+    if (
+      !correlationId ||
+      typeof correlationId !== "string"
+    ) {
+      throw new AppError(
+        "MISSING_FIELD",
+        "correlationId is required"
+      );
+    }
+
+    if (
+      !Number.isInteger(stepIndex) ||
+      stepIndex < 0
+    ) {
+      throw new AppError(
+        "MISSING_FIELD",
+        "stepIndex must be a non-negative integer"
+      );
+    }
+
+    try {
+      const result =
+        await verifyEvidenceStep({
+          correlationId,
+          stepIndex,
+        });
+
+      res.json(result);
+    } catch (err) {
+      if (err instanceof AppError) {
+        throw err;
+      }
+
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Evidence verification failed";
+
+      if (message.includes("not found")) {
+        throw new AppError(
+          "TRANSACTION_NOT_FOUND",
+          message
+        );
+      }
+
+      throw new AppError(
+        "INTERNAL_ERROR",
+        message
+      );
+    }
+  }
+);
+
 
 export const prepareRedeem = asyncHandler(async (req: Request, res: Response) => {
   const result = await executePrepareRedeem({

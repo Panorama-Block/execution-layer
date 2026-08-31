@@ -583,6 +583,27 @@ export interface VerificationResult {
   valueMatchesExpected: boolean;
 }
 
+export interface VerifyEvidenceInput {
+  correlationId: string;
+  stepIndex: number;
+}
+
+export function resolveEvidenceChain(
+  chainId: number
+): "avalanche" | "base" {
+  if (chainId === 43114) {
+    return "avalanche";
+  }
+
+  if (chainId === 8453) {
+    return "base";
+  }
+
+  throw new Error(
+    `Unsupported evidence chain id: ${chainId}`
+  );
+}
+
 async function gatewayGet<T>(path: string): Promise<T> {
   const config = gatewayConfig();
   const controller = new AbortController();
@@ -853,22 +874,88 @@ export async function submitAndVerifyEvidence(
   // leave the parent record looking merely "prepared".
   await rollUpEvidenceStatus(input.correlationId);
 
+  return verifyEvidenceStep({
+    correlationId: input.correlationId,
+    stepIndex: input.stepIndex,
+  });
+}
+
+export async function verifyEvidenceStep(
+  input: VerifyEvidenceInput
+): Promise<VerificationResult> {
+  if (!evidenceEnabled()) {
+    throw new Error(
+      "Transaction evidence verification requires PHASE2_EVIDENCE_ENABLED=true"
+    );
+  }
+
+  if (
+    !Number.isInteger(input.stepIndex) ||
+    input.stepIndex < 0
+  ) {
+    throw new Error("Invalid step index");
+  }
+
+  const parent = await gatewayGet<StoredEvidence>(
+    `/v1/transaction-evidence/${encodeURIComponent(input.correlationId)}`
+  );
+
+  const stepId =
+    `${input.correlationId}:${input.stepIndex}`;
+
+  const step = await gatewayGet<StoredEvidenceStep>(
+    `/v1/transaction-evidence-steps/${encodeURIComponent(stepId)}`
+  );
+
+  if (!parent || !step) {
+    throw new Error(
+      "Evidence record or prepared step not found"
+    );
+  }
+
+  if (
+    step.correlationId !== input.correlationId
+  ) {
+    throw new Error(
+      "Evidence correlation mismatch"
+    );
+  }
+
+  if (step.stepIndex !== input.stepIndex) {
+    throw new Error(
+      "Evidence step mismatch"
+    );
+  }
+
+  if (
+    !step.txHash ||
+    !/^0x[a-fA-F0-9]{64}$/.test(step.txHash)
+  ) {
+    throw new Error(
+      `Submitted transaction hash not found for evidence step ${input.stepIndex}`
+    );
+  }
+
+  const txHash = step.txHash.toLowerCase();
+  const chain =
+    resolveEvidenceChain(step.chainId);
+
   const { getProvider } = await import("../../providers/chain.provider");
 
-  const provider = getProvider(input.chain);
+  const provider = getProvider(chain);
 
   const [network, tx, receipt] = await Promise.all([
     provider.getNetwork(),
-    provider.getTransaction(input.txHash),
-    provider.getTransactionReceipt(input.txHash),
+    provider.getTransaction(txHash),
+    provider.getTransactionReceipt(txHash),
   ]);
 
   if (!tx) {
-    throw new Error(`Transaction ${input.txHash} not found via independent RPC`);
+    throw new Error(`Transaction ${txHash} not found via independent RPC`);
   }
 
   if (!receipt) {
-    throw new Error(`Receipt ${input.txHash} not found via independent RPC`);
+    throw new Error(`Receipt ${txHash} not found via independent RPC`);
   }
 
   const actualChainId = Number(network.chainId);
@@ -881,8 +968,7 @@ export async function submitAndVerifyEvidence(
     (tx.to || "").toLowerCase() === step.toAddress.toLowerCase();
 
   const chainMatchesExpected =
-    actualChainId === expectedChainId &&
-    parent.chainId === expectedChainId;
+    actualChainId === expectedChainId;
 
   const actualDataHash = ethers.keccak256(tx.data || "0x");
   const dataMatchesExpected =
@@ -892,7 +978,7 @@ export async function submitAndVerifyEvidence(
     tx.value.toString() === step.value;
 
   const receiptMatchesSubmission =
-    receipt.hash.toLowerCase() === input.txHash.toLowerCase();
+    receipt.hash.toLowerCase() === txHash.toLowerCase();
 
   const verified =
     receiptMatchesSubmission &&
@@ -972,7 +1058,7 @@ export async function submitAndVerifyEvidence(
       receipt: receiptEvidence,
       receiptRetrievedAt: retrievedAt,
     },
-    `phase2-receipt:${input.correlationId}:${input.stepIndex}:${input.txHash.toLowerCase()}`
+    `phase2-receipt:${input.correlationId}:${input.stepIndex}:${txHash.toLowerCase()}`
   );
 
   await rollUpEvidenceStatus(input.correlationId);
@@ -987,14 +1073,14 @@ export async function submitAndVerifyEvidence(
       destinationMatchesExpected,
       chainMatchesExpected,
       verificationSource:
-        `execution-layer-rpc:${input.chain}`,
+        `execution-layer-rpc:${chain}`,
       verification,
       verificationError: verified
         ? undefined
         : "Independent receipt verification mismatch",
       verifiedAt: retrievedAt,
     },
-    `phase2-verification:${input.correlationId}:${input.stepIndex}:${input.txHash.toLowerCase()}`
+    `phase2-verification:${input.correlationId}:${input.stepIndex}:${txHash.toLowerCase()}`
   );
 
   await rollUpEvidenceStatus(input.correlationId);
@@ -1003,7 +1089,7 @@ export async function submitAndVerifyEvidence(
     {
       correlationId: input.correlationId,
       stepIndex: input.stepIndex,
-      txHash: input.txHash,
+      txHash: txHash,
       chainId: actualChainId,
       verified,
     },
@@ -1013,7 +1099,7 @@ export async function submitAndVerifyEvidence(
   return {
     correlationId: input.correlationId,
     stepIndex: input.stepIndex,
-    txHash: input.txHash.toLowerCase(),
+    txHash: txHash.toLowerCase(),
     verified,
     receiptStatus: receipt.status,
     blockNumber: String(receipt.blockNumber),

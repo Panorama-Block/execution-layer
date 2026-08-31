@@ -51,6 +51,22 @@ avaxLendingRoutes.post(
 );
 
 /**
+ * POST /avax/lending/evidence/:correlationId/verifications
+ * Independently re-verifies the persisted submitted transaction.
+ *
+ * Body: { stepIndex }
+ *
+ * txHash is deliberately not accepted. Verification is bound to
+ * the immutable transaction hash already persisted for the step.
+ */
+avaxLendingRoutes.post(
+  "/evidence/:correlationId/verifications",
+  validateRequired("stepIndex"),
+  executionTimeout(),
+  ctrl.verifyEvidence
+);
+
+/**
  * POST /avax/lending/prepare-redeem
  * Prepares a TransactionBundle to redeem qTokens for underlying.
  * Steps: [approve qToken] + [redeem / redeemAVAX]

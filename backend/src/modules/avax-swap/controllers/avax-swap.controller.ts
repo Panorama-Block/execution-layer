@@ -5,6 +5,7 @@ import { executePrepareAvaxSwap } from "../usecases/prepare-swap.usecase";
 import { getEnabledSwapPairs }    from "../config/avax-swap-pairs";
 import {
   submitAndVerifyEvidence,
+  verifyEvidenceStep,
   getTransactionEvidence,
   exportTransactionEvidence,
   exportTransactionEvidenceByWallet,
@@ -168,6 +169,66 @@ export const submitEvidence = asyncHandler(async (req: Request, res: Response) =
     throw new AppError("INTERNAL_ERROR", message);
   }
 });
+
+
+export const verifyEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { correlationId } = req.params;
+    const { stepIndex } = req.body;
+
+    if (
+      !correlationId ||
+      typeof correlationId !== "string"
+    ) {
+      throw new AppError(
+        "MISSING_FIELD",
+        "correlationId is required"
+      );
+    }
+
+    if (
+      !Number.isInteger(stepIndex) ||
+      stepIndex < 0
+    ) {
+      throw new AppError(
+        "MISSING_FIELD",
+        "stepIndex must be a non-negative integer"
+      );
+    }
+
+    try {
+      const result =
+        await verifyEvidenceStep({
+          correlationId,
+          stepIndex,
+        });
+
+      res.json(result);
+    } catch (err) {
+      if (err instanceof AppError) {
+        throw err;
+      }
+
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Evidence verification failed";
+
+      if (message.includes("not found")) {
+        throw new AppError(
+          "TRANSACTION_NOT_FOUND",
+          message
+        );
+      }
+
+      throw new AppError(
+        "INTERNAL_ERROR",
+        message
+      );
+    }
+  }
+);
+
 
 export const getEvidence = asyncHandler(
   async (req: Request, res: Response) => {

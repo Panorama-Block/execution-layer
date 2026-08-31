@@ -183,5 +183,124 @@ describe(
         });
       }
     );
+
+
+    it(
+      "preserves cancelled-before-submission while no transaction hash exists",
+      () => {
+        expect(
+          deriveEvidenceLifecycleStatus(
+            [prepared, prepared],
+            "cancelled-before-submission"
+          )
+        ).toEqual({
+          status: "cancelled-before-submission",
+          verificationStatus: null,
+          verified: false,
+        });
+      }
+    );
+
+    it(
+      "does not allow cancellation status to hide a later durable submission",
+      () => {
+        expect(
+          deriveEvidenceLifecycleStatus(
+            [submitted, prepared],
+            "cancelled-before-submission"
+          ).status
+        ).toBe("partially-submitted");
+      }
+    );
+
+    it(
+      "preserves partially-executed after execution terminates with only some durable hashes",
+      () => {
+        expect(
+          deriveEvidenceLifecycleStatus(
+            [submitted, prepared],
+            "partially-executed",
+            "pending"
+          )
+        ).toEqual({
+          status: "partially-executed",
+          verificationStatus: "pending",
+          verified: false,
+        });
+      }
+    );
+
+    it(
+      "preserves partially-executed when an earlier submitted step later confirms",
+      () => {
+        expect(
+          deriveEvidenceLifecycleStatus(
+            [confirmed, prepared],
+            "partially-executed",
+            "pending"
+          ).status
+        ).toBe("partially-executed");
+      }
+    );
+
+    it(
+      "advances beyond partially-executed when every prepared step is later submitted",
+      () => {
+        expect(
+          deriveEvidenceLifecycleStatus(
+            [submitted, submitted],
+            "partially-executed",
+            "pending"
+          ).status
+        ).toBe("submitted");
+      }
+    );
+
+    it(
+      "derives reverted from an independently retrieved reverted receipt",
+      () => {
+        expect(
+          deriveEvidenceLifecycleStatus(
+            [
+              {
+                ...confirmed,
+                receiptStatus: 0,
+                verified: false,
+              },
+            ],
+            "verification-failed",
+            "failed"
+          )
+        ).toEqual({
+          status: "reverted",
+          verificationStatus: "failed",
+          verified: false,
+        });
+      }
+    );
+
+    it(
+      "reverted outranks a generic verification failure",
+      () => {
+        expect(
+          deriveEvidenceLifecycleStatus(
+            [
+              {
+                ...confirmed,
+                receiptStatus: 0,
+                verified: false,
+              },
+              {
+                ...confirmed,
+                verified: false,
+              },
+            ],
+            "verification-failed",
+            "failed"
+          ).status
+        ).toBe("reverted");
+      }
+    );
+
   }
 );

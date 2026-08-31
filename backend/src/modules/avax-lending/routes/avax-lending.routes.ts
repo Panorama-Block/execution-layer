@@ -60,6 +60,13 @@ avaxLendingRoutes.post(
  * the immutable transaction hash already persisted for the step.
  */
 avaxLendingRoutes.post(
+  "/evidence/:correlationId/outcomes",
+  validateRequired("outcome"),
+  executionTimeout(),
+  ctrl.recordEvidenceOutcome
+);
+
+avaxLendingRoutes.post(
   "/evidence/:correlationId/verifications",
   validateRequired("stepIndex"),
   executionTimeout(),

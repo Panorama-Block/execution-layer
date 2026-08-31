@@ -167,6 +167,13 @@ avaxSwapRoutes.post(
  * the immutable transaction hash already persisted for the step.
  */
 avaxSwapRoutes.post(
+  "/evidence/:correlationId/outcomes",
+  validateRequired("outcome"),
+  executionTimeout(),
+  ctrl.recordEvidenceOutcome
+);
+
+avaxSwapRoutes.post(
   "/evidence/:correlationId/verifications",
   validateRequired("stepIndex"),
   executionTimeout(),

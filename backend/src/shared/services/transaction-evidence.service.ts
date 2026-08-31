@@ -433,10 +433,13 @@ interface StoredEvidenceStep {
 export type EvidenceLifecycleStatus =
   | "intent-recorded"
   | "prepared"
+  | "cancelled-before-submission"
   | "partially-submitted"
+  | "partially-executed"
   | "submitted"
   | "partially-confirmed"
   | "confirmed"
+  | "reverted"
   | "verified"
   | "verification-failed";
 
@@ -491,6 +494,13 @@ export function deriveEvidenceLifecycleStatus(
   const allConfirmed =
     steps.every(isConfirmed);
 
+  const anyReverted =
+    steps.some(
+      (step) =>
+        isConfirmed(step) &&
+        step.receiptStatus === 0
+    );
+
   const anyVerificationFailed =
     steps.some(
       (step) =>
@@ -502,6 +512,16 @@ export function deriveEvidenceLifecycleStatus(
     steps.every(
       (step) => step.verified === true
     );
+
+  // A reverted receipt is independently retrieved chain evidence.
+  // It therefore outranks generic verification failure semantics.
+  if (anyReverted) {
+    return {
+      status: "reverted",
+      verificationStatus: "failed",
+      verified: false,
+    };
+  }
 
   if (allVerified) {
     return {
@@ -515,6 +535,22 @@ export function deriveEvidenceLifecycleStatus(
     return {
       status: "verification-failed",
       verificationStatus: "failed",
+      verified: false,
+    };
+  }
+
+  // An explicit partial-execution outcome means execution stopped
+  // before all committed steps obtained durable submission hashes.
+  // Preserve that outcome even if earlier submitted steps later confirm.
+  if (
+    currentStatus === "partially-executed" &&
+    anySubmitted &&
+    !allSubmitted
+  ) {
+    return {
+      status: "partially-executed",
+      verificationStatus:
+        currentVerificationStatus || "pending",
       verified: false,
     };
   }
@@ -551,12 +587,36 @@ export function deriveEvidenceLifecycleStatus(
     };
   }
 
+  // Cancellation is valid only while no durable submission exists.
+  // If a hash appears later, the submission branches above take over.
+  if (
+    currentStatus === "cancelled-before-submission" &&
+    !anySubmitted
+  ) {
+    return {
+      status: "cancelled-before-submission",
+      verificationStatus:
+        currentVerificationStatus,
+      verified: false,
+    };
+  }
+
   return {
     status: currentStatus,
     verificationStatus:
       currentVerificationStatus,
     verified: currentStatus === "verified",
   };
+}
+
+export type EvidenceExecutionOutcome =
+  | "cancelled-before-submission"
+  | "partially-executed";
+
+export interface RecordEvidenceExecutionOutcomeInput {
+  correlationId: string;
+  outcome: EvidenceExecutionOutcome;
+  reason?: string;
 }
 
 export interface SubmitEvidenceInput {
@@ -801,6 +861,77 @@ function canonicalLogsHash(
   }));
 
   return hashJson(canonical);
+}
+
+export async function recordEvidenceExecutionOutcome(
+  input: RecordEvidenceExecutionOutcomeInput
+): Promise<EvidenceLifecycleRollup> {
+  if (!evidenceEnabled()) {
+    throw new Error(
+      "Transaction evidence outcome reporting requires PHASE2_EVIDENCE_ENABLED=true"
+    );
+  }
+
+  if (
+    input.outcome !== "cancelled-before-submission" &&
+    input.outcome !== "partially-executed"
+  ) {
+    throw new Error(
+      `Unsupported evidence execution outcome: ${input.outcome}`
+    );
+  }
+
+  const { evidence, steps } =
+    await getTransactionEvidence(input.correlationId);
+
+  const submittedCount =
+    steps.filter(
+      (step) => Boolean(step.txHash)
+    ).length;
+
+  if (
+    input.outcome === "cancelled-before-submission" &&
+    submittedCount !== 0
+  ) {
+    throw new Error(
+      "Cannot record cancelled-before-submission after a durable transaction submission"
+    );
+  }
+
+  if (
+    input.outcome === "partially-executed" &&
+    (
+      submittedCount === 0 ||
+      submittedCount >= steps.length
+    )
+  ) {
+    throw new Error(
+      "partially-executed requires at least one but not all prepared steps to have durable transaction hashes"
+    );
+  }
+
+  const verificationStatus =
+    input.outcome === "partially-executed"
+      ? evidence.verificationStatus || "pending"
+      : evidence.verificationStatus || null;
+
+  await gatewayPatch(
+    "transaction-evidence",
+    input.correlationId,
+    {
+      status: input.outcome,
+      verificationStatus,
+      errorReason:
+        input.reason?.trim() || null,
+    },
+    `phase2-outcome:${input.correlationId}:${input.outcome}`
+  );
+
+  return {
+    status: input.outcome,
+    verificationStatus,
+    verified: false,
+  };
 }
 
 export async function submitAndVerifyEvidence(

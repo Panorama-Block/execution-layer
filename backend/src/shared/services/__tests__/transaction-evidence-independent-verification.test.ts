@@ -149,6 +149,14 @@ function installGateway(
   parent = makeParent(),
   step = makeStep()
 ) {
+  const storedParent = {
+    ...parent,
+  };
+
+  const storedStep = {
+    ...step,
+  };
+
   const fetchMock = vi.fn(
     async (
       input: string | URL | Request,
@@ -165,7 +173,7 @@ function installGateway(
           )
         ) {
           return response({
-            data: parent,
+            data: storedParent,
           });
         }
 
@@ -175,15 +183,46 @@ function installGateway(
           )
         ) {
           return response({
-            data: step,
+            data: storedStep,
           });
         }
       }
 
       if (method === "PATCH") {
-        return response({
-          data: {},
-        });
+        const patch =
+          init?.body
+            ? JSON.parse(String(init.body))
+            : {};
+
+        if (
+          url.endsWith(
+            `/v1/transaction-evidence/${CORRELATION_ID}`
+          )
+        ) {
+          Object.assign(
+            storedParent,
+            patch
+          );
+
+          return response({
+            data: storedParent,
+          });
+        }
+
+        if (
+          url.endsWith(
+            `/v1/transaction-evidence-steps/${CORRELATION_ID}%3A${STEP_INDEX}`
+          )
+        ) {
+          Object.assign(
+            storedStep,
+            patch
+          );
+
+          return response({
+            data: storedStep,
+          });
+        }
       }
 
       throw new Error(
@@ -197,7 +236,11 @@ function installGateway(
     fetchMock
   );
 
-  return fetchMock;
+  return {
+    fetchMock,
+    storedParent,
+    storedStep,
+  };
 }
 
 function patchKeys(
@@ -595,9 +638,71 @@ describe(
     );
 
     it(
+      "persists a reverted receipt and preserves reverted after verification failure roll-up",
+      async () => {
+        const {
+          fetchMock,
+          storedParent,
+          storedStep,
+        } = installGateway();
+
+        mockGetTransactionReceipt
+          .mockResolvedValue(
+            makeReceipt({
+              status: 0,
+            })
+          );
+
+        const result =
+          await verifyEvidenceStep({
+            correlationId:
+              CORRELATION_ID,
+            stepIndex: STEP_INDEX,
+          });
+
+        expect(result).toMatchObject({
+          verified: false,
+          receiptStatus: 0,
+        });
+
+        expect(storedStep).toMatchObject({
+          receiptStatus: 0,
+          verified: false,
+        });
+
+        expect(
+          (
+            storedStep as Record<
+              string,
+              unknown
+            >
+          ).receiptRetrievedAt
+        ).toBeTruthy();
+
+        expect(storedParent).toMatchObject({
+          status: "reverted",
+          verificationStatus: "failed",
+        });
+
+        const parentRollupKeys =
+          patchKeys(fetchMock).filter(
+            (key) =>
+              key.startsWith(
+                `phase2-rollup:${CORRELATION_ID}:`
+              )
+          );
+
+        expect(parentRollupKeys).toEqual([
+          `phase2-rollup:${CORRELATION_ID}:reverted`,
+          `phase2-rollup:${CORRELATION_ID}:reverted`,
+        ]);
+      }
+    );
+
+    it(
       "persists receipt confirmation before verification outcome",
       async () => {
-        const fetchMock =
+        const { fetchMock } =
           installGateway();
 
         await verifyEvidenceStep({
@@ -640,7 +745,7 @@ describe(
     it(
       "can re-verify persisted evidence without creating a new submission",
       async () => {
-        const fetchMock =
+        const { fetchMock } =
           installGateway();
 
         await verifyEvidenceStep({

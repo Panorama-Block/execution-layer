@@ -6,6 +6,9 @@ import { BundleBuilder, BENQI_SELECTORS } from "../../../shared/bundle-builder";
 import { TransactionBundle } from "../../../types/transaction";
 import { AppError } from "../../../shared/errorCodes";
 import { getMarketByQToken } from "../config/avax-lending-markets";
+import {
+  prepareEvidenceBoundBundle,
+} from "../../../shared/services/evidence-bound-preparation.service";
 
 export interface PrepareSupplyRequest {
   userAddress:  string;
@@ -14,6 +17,10 @@ export interface PrepareSupplyRequest {
 }
 
 export interface PrepareSupplyResponse {
+  correlationId: string;
+  evidenceVersion: string;
+  evidenceEnabled: boolean;
+  preparedPayloadHash: string;
   bundle:   TransactionBundle;
   metadata: {
     action:           "supply";
@@ -36,65 +43,91 @@ export async function executePrepareSupply(req: PrepareSupplyRequest): Promise<P
   const amount = BigInt(req.amount);
   if (amount <= 0n) throw new AppError("INVALID_AMOUNT", "amount must be positive");
 
-  const protocolId = encodeProtocolId("benqi");
-  const builder    = new BundleBuilder(chain.chainId);
-  const deadline   = getDeadline(20);
-
-  if (market.isNative) {
-    // supplyAVAX(address user) — native AVAX sent as msg.value
-    const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
-      ["address"],
-      [req.userAddress]
-    );
-
-    builder.addExecute(
-      protocolId,
-      BENQI_SELECTORS.SUPPLY_AVAX,
-      [],
-      deadline,
-      adapterData,
-      amount,
-      executorAddr,
-      `Supply ${ethers.formatEther(amount)} AVAX to Benqi`
-    );
-  } else {
-    // approve underlying → executor
-    const allowance = await avaxService.checkAllowance(market.underlyingAddress!, req.userAddress, executorAddr, amount);
-    builder.addApproveIfNeeded(
-      market.underlyingAddress!,
-      executorAddr,
-      allowance,
-      amount,
-      `Approve ${market.underlyingSymbol} for PanoramaExecutor`
-    );
-
-    // supply(address qToken, uint256 amount, address user)
-    const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
-      ["address", "uint256", "address"],
-      [req.qTokenAddress, amount, req.userAddress]
-    );
-
-    builder.addExecute(
-      protocolId,
-      BENQI_SELECTORS.SUPPLY,
-      [{ token: market.underlyingAddress!, amount }],
-      deadline,
-      adapterData,
-      0n,
-      executorAddr,
-      `Supply ${market.underlyingSymbol} to Benqi`
-    );
-  }
-
-  return {
-    bundle: await builder.buildWithGas(`Supply ${market.underlyingSymbol} to Benqi on Avalanche`, req.userAddress),
-    metadata: {
-      action:           "supply",
-      qTokenAddress:    req.qTokenAddress,
-      qTokenSymbol:     market.qTokenSymbol,
-      underlyingSymbol: market.underlyingSymbol,
-      amount:           amount.toString(),
-      isNative:         market.isNative,
+  return prepareEvidenceBoundBundle({
+    intent: {
+      action: "supply",
+      chainId: chain.chainId,
+      network: "avalanche-c-chain",
+      walletAddress: req.userAddress,
+      assetIn: market.underlyingAddress ?? market.underlyingSymbol,
+      assetOut: req.qTokenAddress,
+      amountRaw: amount.toString(),
     },
-  };
+    prepare: async () => {
+      const protocolId = encodeProtocolId("benqi");
+      const builder    = new BundleBuilder(chain.chainId);
+      const deadline   = getDeadline(20);
+
+      if (market.isNative) {
+        // supplyAVAX(address user) — native AVAX sent as msg.value
+        const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+          ["address"],
+          [req.userAddress]
+        );
+
+        builder.addExecute(
+          protocolId,
+          BENQI_SELECTORS.SUPPLY_AVAX,
+          [],
+          deadline,
+          adapterData,
+          amount,
+          executorAddr,
+          `Supply ${ethers.formatEther(amount)} AVAX to Benqi`
+        );
+      } else {
+        // approve underlying → executor
+        const allowance = await avaxService.checkAllowance(
+          market.underlyingAddress!,
+          req.userAddress,
+          executorAddr,
+          amount
+        );
+
+        builder.addApproveIfNeeded(
+          market.underlyingAddress!,
+          executorAddr,
+          allowance,
+          amount,
+          `Approve ${market.underlyingSymbol} for PanoramaExecutor`
+        );
+
+        // supply(address qToken, uint256 amount, address user)
+        const adapterData = ethers.AbiCoder.defaultAbiCoder().encode(
+          ["address", "uint256", "address"],
+          [req.qTokenAddress, amount, req.userAddress]
+        );
+
+        builder.addExecute(
+          protocolId,
+          BENQI_SELECTORS.SUPPLY,
+          [{ token: market.underlyingAddress!, amount }],
+          deadline,
+          adapterData,
+          0n,
+          executorAddr,
+          `Supply ${market.underlyingSymbol} to Benqi`
+        );
+      }
+
+      const bundle = await builder.buildWithGas(
+        `Supply ${market.underlyingSymbol} to Benqi on Avalanche`,
+        req.userAddress
+      );
+
+      const metadata = {
+        action: "supply" as const,
+        qTokenAddress: req.qTokenAddress,
+        qTokenSymbol: market.qTokenSymbol,
+        underlyingSymbol: market.underlyingSymbol,
+        amount: amount.toString(),
+        isNative: market.isNative,
+      };
+
+      return {
+        bundle,
+        metadata,
+      };
+    },
+  });
 }

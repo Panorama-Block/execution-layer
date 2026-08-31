@@ -430,6 +430,195 @@ interface StoredEvidenceStep {
   updatedAt?: string;
 }
 
+export type EvidenceLifecycleStatus =
+  | "intent-recorded"
+  | "prepared"
+  | "cancelled-before-submission"
+  | "partially-submitted"
+  | "partially-executed"
+  | "submitted"
+  | "partially-confirmed"
+  | "confirmed"
+  | "reverted"
+  | "verified"
+  | "verification-failed";
+
+export interface EvidenceLifecycleStepState {
+  txHash?: string | null;
+  receiptStatus?: number | null;
+  receiptRetrievedAt?: string | null;
+  verified?: boolean | null;
+}
+
+export interface EvidenceLifecycleRollup {
+  status: string;
+  verificationStatus: string | null;
+  verified: boolean;
+}
+
+export function deriveEvidenceLifecycleStatus(
+  steps: EvidenceLifecycleStepState[],
+  currentStatus: string,
+  currentVerificationStatus: string | null = null
+): EvidenceLifecycleRollup {
+  if (steps.length === 0) {
+    return {
+      status: currentStatus,
+      verificationStatus:
+        currentVerificationStatus,
+      verified: currentStatus === "verified",
+    };
+  }
+
+  const isSubmitted = (
+    step: EvidenceLifecycleStepState
+  ) => Boolean(step.txHash);
+
+  const isConfirmed = (
+    step: EvidenceLifecycleStepState
+  ) =>
+    isSubmitted(step) &&
+    Boolean(step.receiptRetrievedAt) &&
+    step.receiptStatus !== null &&
+    step.receiptStatus !== undefined;
+
+  const anySubmitted =
+    steps.some(isSubmitted);
+
+  const allSubmitted =
+    steps.every(isSubmitted);
+
+  const anyConfirmed =
+    steps.some(isConfirmed);
+
+  const allConfirmed =
+    steps.every(isConfirmed);
+
+  const anyReverted =
+    steps.some(
+      (step) =>
+        isConfirmed(step) &&
+        step.receiptStatus === 0
+    );
+
+  const anyVerificationFailed =
+    steps.some(
+      (step) =>
+        isSubmitted(step) &&
+        step.verified === false
+    );
+
+  const allVerified =
+    steps.every(
+      (step) => step.verified === true
+    );
+
+  // A reverted receipt is independently retrieved chain evidence.
+  // It therefore outranks generic verification failure semantics.
+  if (anyReverted) {
+    return {
+      status: "reverted",
+      verificationStatus: "failed",
+      verified: false,
+    };
+  }
+
+  if (allVerified) {
+    return {
+      status: "verified",
+      verificationStatus: "verified",
+      verified: true,
+    };
+  }
+
+  if (anyVerificationFailed) {
+    return {
+      status: "verification-failed",
+      verificationStatus: "failed",
+      verified: false,
+    };
+  }
+
+  // An explicit partial-execution outcome means execution stopped
+  // before all committed steps obtained durable submission hashes.
+  // Preserve that outcome even if earlier submitted steps later confirm.
+  if (
+    currentStatus === "partially-executed" &&
+    anySubmitted &&
+    !allSubmitted
+  ) {
+    return {
+      status: "partially-executed",
+      verificationStatus:
+        currentVerificationStatus || "pending",
+      verified: false,
+    };
+  }
+
+  if (allConfirmed) {
+    return {
+      status: "confirmed",
+      verificationStatus: "pending",
+      verified: false,
+    };
+  }
+
+  if (anyConfirmed) {
+    return {
+      status: "partially-confirmed",
+      verificationStatus: "pending",
+      verified: false,
+    };
+  }
+
+  if (allSubmitted) {
+    return {
+      status: "submitted",
+      verificationStatus: "pending",
+      verified: false,
+    };
+  }
+
+  if (anySubmitted) {
+    return {
+      status: "partially-submitted",
+      verificationStatus: "pending",
+      verified: false,
+    };
+  }
+
+  // Cancellation is valid only while no durable submission exists.
+  // If a hash appears later, the submission branches above take over.
+  if (
+    currentStatus === "cancelled-before-submission" &&
+    !anySubmitted
+  ) {
+    return {
+      status: "cancelled-before-submission",
+      verificationStatus:
+        currentVerificationStatus,
+      verified: false,
+    };
+  }
+
+  return {
+    status: currentStatus,
+    verificationStatus:
+      currentVerificationStatus,
+    verified: currentStatus === "verified",
+  };
+}
+
+export type EvidenceExecutionOutcome =
+  | "cancelled-before-submission"
+  | "partially-executed";
+
+export interface RecordEvidenceExecutionOutcomeInput {
+  correlationId: string;
+  outcome: EvidenceExecutionOutcome;
+  reason?: string;
+}
+
 export interface SubmitEvidenceInput {
   correlationId: string;
   stepIndex: number;
@@ -452,6 +641,27 @@ export interface VerificationResult {
   chainMatchesExpected: boolean;
   dataMatchesExpected: boolean;
   valueMatchesExpected: boolean;
+}
+
+export interface VerifyEvidenceInput {
+  correlationId: string;
+  stepIndex: number;
+}
+
+export function resolveEvidenceChain(
+  chainId: number
+): "avalanche" | "base" {
+  if (chainId === 43114) {
+    return "avalanche";
+  }
+
+  if (chainId === 8453) {
+    return "base";
+  }
+
+  throw new Error(
+    `Unsupported evidence chain id: ${chainId}`
+  );
 }
 
 async function gatewayGet<T>(path: string): Promise<T> {
@@ -536,45 +746,10 @@ async function gatewayList<T>(
   }
 }
 
-async function listStoredEvidenceByWallet(
-  walletAddress: string,
-  chainId = 43114
-): Promise<StoredEvidence[]> {
-  const records: StoredEvidence[] = [];
-  const take = 1000;
-  let skip = 0;
-
-  while (true) {
-    const where = encodeURIComponent(
-      JSON.stringify({
-        walletAddress: walletAddress.toLowerCase(),
-        chainId,
-      })
-    );
-    const orderBy = encodeURIComponent(
-      JSON.stringify({ createdAt: "asc" })
-    );
-
-    const result = await gatewayList<StoredEvidence>(
-      `/v1/transaction-evidence?where=${where}&orderBy=${orderBy}&take=${take}&skip=${skip}`
-    );
-
-    records.push(...result.data);
-
-    if (result.data.length < take) {
-      break;
-    }
-
-    skip += take;
-  }
-
-  return records;
-}
-
-async function listStoredEvidenceByChain(
-  chainId = 43114
-): Promise<StoredEvidence[]> {
-  const records: StoredEvidence[] = [];
+async function listParticipatingCorrelationIdsByChain(
+  chainId: number
+): Promise<string[]> {
+  const correlationIds = new Set<string>();
   const take = 1000;
   let skip = 0;
 
@@ -583,14 +758,19 @@ async function listStoredEvidenceByChain(
       JSON.stringify({ chainId })
     );
     const orderBy = encodeURIComponent(
-      JSON.stringify({ createdAt: "asc" })
+      JSON.stringify({
+        correlationId: "asc",
+        stepIndex: "asc",
+      })
     );
 
-    const result = await gatewayList<StoredEvidence>(
-      `/v1/transaction-evidence?where=${where}&orderBy=${orderBy}&take=${take}&skip=${skip}`
+    const result = await gatewayList<StoredEvidenceStep>(
+      `/v1/transaction-evidence-steps?where=${where}&orderBy=${orderBy}&take=${take}&skip=${skip}`
     );
 
-    records.push(...result.data);
+    for (const step of result.data) {
+      correlationIds.add(step.correlationId);
+    }
 
     if (result.data.length < take) {
       break;
@@ -599,7 +779,56 @@ async function listStoredEvidenceByChain(
     skip += take;
   }
 
+  return Array.from(correlationIds).sort();
+}
+
+async function listStoredEvidenceByWallet(
+  walletAddress: string,
+  chainId = 43114
+): Promise<StoredEvidence[]> {
+  const correlationIds =
+    await listParticipatingCorrelationIdsByChain(chainId);
+
+  if (correlationIds.length === 0) {
+    return [];
+  }
+
+  const records: StoredEvidence[] = [];
+  const expectedWalletAddress = walletAddress.toLowerCase();
+
+  for (const correlationId of correlationIds) {
+    const record = await gatewayGet<StoredEvidence>(
+      `/v1/transaction-evidence/${encodeURIComponent(correlationId)}`
+    );
+
+    if (
+      record &&
+      record.walletAddress.toLowerCase() === expectedWalletAddress
+    ) {
+      records.push(record);
+    }
+  }
+
   return records;
+}
+
+async function listStoredEvidenceByChain(
+  chainId = 43114
+): Promise<StoredEvidence[]> {
+  const correlationIds =
+    await listParticipatingCorrelationIdsByChain(chainId);
+
+  const records = await Promise.all(
+    correlationIds.map((correlationId) =>
+      gatewayGet<StoredEvidence>(
+        `/v1/transaction-evidence/${encodeURIComponent(correlationId)}`
+      )
+    )
+  );
+
+  return records.filter(
+    (record): record is StoredEvidence => Boolean(record)
+  );
 }
 
 async function gatewayPatch(
@@ -632,6 +861,77 @@ function canonicalLogsHash(
   }));
 
   return hashJson(canonical);
+}
+
+export async function recordEvidenceExecutionOutcome(
+  input: RecordEvidenceExecutionOutcomeInput
+): Promise<EvidenceLifecycleRollup> {
+  if (!evidenceEnabled()) {
+    throw new Error(
+      "Transaction evidence outcome reporting requires PHASE2_EVIDENCE_ENABLED=true"
+    );
+  }
+
+  if (
+    input.outcome !== "cancelled-before-submission" &&
+    input.outcome !== "partially-executed"
+  ) {
+    throw new Error(
+      `Unsupported evidence execution outcome: ${input.outcome}`
+    );
+  }
+
+  const { evidence, steps } =
+    await getTransactionEvidence(input.correlationId);
+
+  const submittedCount =
+    steps.filter(
+      (step) => Boolean(step.txHash)
+    ).length;
+
+  if (
+    input.outcome === "cancelled-before-submission" &&
+    submittedCount !== 0
+  ) {
+    throw new Error(
+      "Cannot record cancelled-before-submission after a durable transaction submission"
+    );
+  }
+
+  if (
+    input.outcome === "partially-executed" &&
+    (
+      submittedCount === 0 ||
+      submittedCount >= steps.length
+    )
+  ) {
+    throw new Error(
+      "partially-executed requires at least one but not all prepared steps to have durable transaction hashes"
+    );
+  }
+
+  const verificationStatus =
+    input.outcome === "partially-executed"
+      ? evidence.verificationStatus || "pending"
+      : evidence.verificationStatus || null;
+
+  await gatewayPatch(
+    "transaction-evidence",
+    input.correlationId,
+    {
+      status: input.outcome,
+      verificationStatus,
+      errorReason:
+        input.reason?.trim() || null,
+    },
+    `phase2-outcome:${input.correlationId}:${input.outcome}`
+  );
+
+  return {
+    status: input.outcome,
+    verificationStatus,
+    verified: false,
+  };
 }
 
 export async function submitAndVerifyEvidence(
@@ -673,37 +973,120 @@ export async function submitAndVerifyEvidence(
     throw new Error("Evidence step mismatch");
   }
 
-  const submittedAt = new Date().toISOString();
+  const normalisedTxHash = input.txHash.toLowerCase();
+
+  if (
+    step.txHash &&
+    step.txHash.toLowerCase() !== normalisedTxHash
+  ) {
+    throw new Error(
+      `Evidence step ${input.stepIndex} already has a different transaction hash`
+    );
+  }
+
+  const submittedAt =
+    step.submittedAt || new Date().toISOString();
 
   await gatewayPatch(
     "transaction-evidence-steps",
     step.id,
     {
-      txHash: input.txHash.toLowerCase(),
+      txHash: normalisedTxHash,
       submittedAt,
       executionMechanism:
         input.executionMechanism || "thirdweb-client",
       providerMetadata: input.providerMetadata || {},
     },
-    `phase2-submission:${input.correlationId}:${input.stepIndex}:${input.txHash.toLowerCase()}`
+    `phase2-submission:${input.correlationId}:${input.stepIndex}:${normalisedTxHash}`
   );
+
+  // The transaction hash is durable evidence in its own right.
+  // Roll up immediately so an RPC/verification failure can never
+  // leave the parent record looking merely "prepared".
+  await rollUpEvidenceStatus(input.correlationId);
+
+  return verifyEvidenceStep({
+    correlationId: input.correlationId,
+    stepIndex: input.stepIndex,
+  });
+}
+
+export async function verifyEvidenceStep(
+  input: VerifyEvidenceInput
+): Promise<VerificationResult> {
+  if (!evidenceEnabled()) {
+    throw new Error(
+      "Transaction evidence verification requires PHASE2_EVIDENCE_ENABLED=true"
+    );
+  }
+
+  if (
+    !Number.isInteger(input.stepIndex) ||
+    input.stepIndex < 0
+  ) {
+    throw new Error("Invalid step index");
+  }
+
+  const parent = await gatewayGet<StoredEvidence>(
+    `/v1/transaction-evidence/${encodeURIComponent(input.correlationId)}`
+  );
+
+  const stepId =
+    `${input.correlationId}:${input.stepIndex}`;
+
+  const step = await gatewayGet<StoredEvidenceStep>(
+    `/v1/transaction-evidence-steps/${encodeURIComponent(stepId)}`
+  );
+
+  if (!parent || !step) {
+    throw new Error(
+      "Evidence record or prepared step not found"
+    );
+  }
+
+  if (
+    step.correlationId !== input.correlationId
+  ) {
+    throw new Error(
+      "Evidence correlation mismatch"
+    );
+  }
+
+  if (step.stepIndex !== input.stepIndex) {
+    throw new Error(
+      "Evidence step mismatch"
+    );
+  }
+
+  if (
+    !step.txHash ||
+    !/^0x[a-fA-F0-9]{64}$/.test(step.txHash)
+  ) {
+    throw new Error(
+      `Submitted transaction hash not found for evidence step ${input.stepIndex}`
+    );
+  }
+
+  const txHash = step.txHash.toLowerCase();
+  const chain =
+    resolveEvidenceChain(step.chainId);
 
   const { getProvider } = await import("../../providers/chain.provider");
 
-  const provider = getProvider(input.chain);
+  const provider = getProvider(chain);
 
   const [network, tx, receipt] = await Promise.all([
     provider.getNetwork(),
-    provider.getTransaction(input.txHash),
-    provider.getTransactionReceipt(input.txHash),
+    provider.getTransaction(txHash),
+    provider.getTransactionReceipt(txHash),
   ]);
 
   if (!tx) {
-    throw new Error(`Transaction ${input.txHash} not found via independent RPC`);
+    throw new Error(`Transaction ${txHash} not found via independent RPC`);
   }
 
   if (!receipt) {
-    throw new Error(`Receipt ${input.txHash} not found via independent RPC`);
+    throw new Error(`Receipt ${txHash} not found via independent RPC`);
   }
 
   const actualChainId = Number(network.chainId);
@@ -716,8 +1099,7 @@ export async function submitAndVerifyEvidence(
     (tx.to || "").toLowerCase() === step.toAddress.toLowerCase();
 
   const chainMatchesExpected =
-    actualChainId === expectedChainId &&
-    parent.chainId === expectedChainId;
+    actualChainId === expectedChainId;
 
   const actualDataHash = ethers.keccak256(tx.data || "0x");
   const dataMatchesExpected =
@@ -727,7 +1109,7 @@ export async function submitAndVerifyEvidence(
     tx.value.toString() === step.value;
 
   const receiptMatchesSubmission =
-    receipt.hash.toLowerCase() === input.txHash.toLowerCase();
+    receipt.hash.toLowerCase() === txHash.toLowerCase();
 
   const verified =
     receiptMatchesSubmission &&
@@ -782,6 +1164,9 @@ export async function submitAndVerifyEvidence(
     },
   };
 
+  // Persist independent receipt confirmation separately from
+  // verification. This makes confirmation a durable lifecycle
+  // checkpoint even if verification fails or the process stops.
   await gatewayPatch(
     "transaction-evidence-steps",
     step.id,
@@ -803,19 +1188,30 @@ export async function submitAndVerifyEvidence(
       logsHash: receiptEvidence.logsHash,
       receipt: receiptEvidence,
       receiptRetrievedAt: retrievedAt,
+    },
+    `phase2-receipt:${input.correlationId}:${input.stepIndex}:${txHash.toLowerCase()}`
+  );
+
+  await rollUpEvidenceStatus(input.correlationId);
+
+  await gatewayPatch(
+    "transaction-evidence-steps",
+    step.id,
+    {
       verified,
       receiptMatchesSubmission,
       senderMatchesExpected,
       destinationMatchesExpected,
       chainMatchesExpected,
-      verificationSource: `execution-layer-rpc:${input.chain}`,
+      verificationSource:
+        `execution-layer-rpc:${chain}`,
       verification,
       verificationError: verified
         ? undefined
         : "Independent receipt verification mismatch",
       verifiedAt: retrievedAt,
     },
-    `phase2-verification:${input.correlationId}:${input.stepIndex}:${input.txHash.toLowerCase()}`
+    `phase2-verification:${input.correlationId}:${input.stepIndex}:${txHash.toLowerCase()}`
   );
 
   await rollUpEvidenceStatus(input.correlationId);
@@ -824,7 +1220,7 @@ export async function submitAndVerifyEvidence(
     {
       correlationId: input.correlationId,
       stepIndex: input.stepIndex,
-      txHash: input.txHash,
+      txHash: txHash,
       chainId: actualChainId,
       verified,
     },
@@ -834,7 +1230,7 @@ export async function submitAndVerifyEvidence(
   return {
     correlationId: input.correlationId,
     stepIndex: input.stepIndex,
-    txHash: input.txHash.toLowerCase(),
+    txHash: txHash.toLowerCase(),
     verified,
     receiptStatus: receipt.status,
     blockNumber: String(receipt.blockNumber),
@@ -921,48 +1317,27 @@ async function rollUpEvidenceStatus(
   const { evidence, steps } =
     await getTransactionEvidence(correlationId);
 
-  const allVerified =
-    steps.length > 0 &&
-    steps.every((step) => step.verified === true);
-
-  const anyFailed =
-    steps.some(
-      (step) =>
-        step.txHash &&
-        step.verified === false
+  const lifecycle =
+    deriveEvidenceLifecycleStatus(
+      steps,
+      evidence.status,
+      evidence.verificationStatus || null
     );
 
-  const anySubmitted =
-    steps.some((step) => Boolean(step.txHash));
-
   const now = new Date().toISOString();
-
-  let status = evidence.status;
-  let verificationStatus =
-    evidence.verificationStatus || null;
-  let verifiedAt: string | undefined;
-
-  if (allVerified) {
-    status = "verified";
-    verificationStatus = "verified";
-    verifiedAt = now;
-  } else if (anyFailed) {
-    status = "verification-failed";
-    verificationStatus = "failed";
-  } else if (anySubmitted) {
-    status = "partially-verified";
-    verificationStatus = "pending";
-  }
 
   await gatewayPatch(
     "transaction-evidence",
     correlationId,
     {
-      status,
-      verificationStatus,
-      ...(verifiedAt ? { verifiedAt } : {}),
+      status: lifecycle.status,
+      verificationStatus:
+        lifecycle.verificationStatus,
+      ...(lifecycle.verified
+        ? { verifiedAt: evidence.verifiedAt || now }
+        : {}),
     },
-    `phase2-rollup:${correlationId}:${status}`
+    `phase2-rollup:${correlationId}:${lifecycle.status}`
   );
 }
 

@@ -5,13 +5,21 @@ import { executePrepareAvaxSwap } from "../usecases/prepare-swap.usecase";
 import { getEnabledSwapPairs }    from "../config/avax-swap-pairs";
 import {
   submitAndVerifyEvidence,
+  verifyEvidenceStep,
   getTransactionEvidence,
   exportTransactionEvidence,
   exportTransactionEvidenceByWallet,
   exportTransactionEvidenceAdmin,
   isPhase2EvidenceAdmin,
+  recordEvidenceExecutionOutcome
 } from "../../../shared/services/transaction-evidence.service";
 import { AppError } from "../../../shared/errorCodes";
+import {
+  beginAvaxBridgeEvidence,
+  beginAvaxBridgeDestinationEvidence,
+  commitAvaxBridgeEvidence,
+  commitAvaxBridgeDestinationEvidence,
+} from "../services/bridge-evidence.service";
 
 export const getQuote = asyncHandler(async (req: Request, res: Response) => {
   const result = await executeGetAvaxQuote({
@@ -38,6 +46,87 @@ export const prepareSwap = asyncHandler(async (req: Request, res: Response) => {
 export const getPairs = asyncHandler(async (_req: Request, res: Response) => {
   res.json({ pairs: getEnabledSwapPairs() });
 });
+
+export const beginBridgeEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const result = await beginAvaxBridgeEvidence({
+      userAddress: req.body.userAddress,
+      destinationChainId: Number(req.body.destinationChainId),
+      sourceToken: req.body.sourceToken,
+      destinationToken: req.body.destinationToken,
+      amountRaw: req.body.amountRaw,
+    });
+
+    res.json(result);
+  }
+);
+
+export const commitBridgeEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { correlationId } = req.params;
+
+    if (!correlationId || typeof correlationId !== "string") {
+      throw new AppError(
+        "MISSING_FIELD",
+        "correlationId is required"
+      );
+    }
+
+    const result = await commitAvaxBridgeEvidence({
+      correlationId,
+      destinationChainId: Number(req.body.destinationChainId),
+      provider: req.body.provider,
+      steps: req.body.steps,
+    });
+
+    res.json(result);
+  }
+);
+
+export const beginBridgeDestinationEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const result =
+      await beginAvaxBridgeDestinationEvidence({
+        userAddress: req.body.userAddress,
+        sourceChainId: Number(
+          req.body.sourceChainId
+        ),
+        destinationToken:
+          req.body.destinationToken,
+        amountRaw: req.body.amountRaw,
+      });
+
+    res.json(result);
+  }
+);
+
+export const commitBridgeDestinationEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { correlationId } = req.params;
+
+    if (
+      !correlationId ||
+      typeof correlationId !== "string"
+    ) {
+      throw new AppError(
+        "MISSING_FIELD",
+        "correlationId is required"
+      );
+    }
+
+    const result =
+      await commitAvaxBridgeDestinationEvidence({
+        correlationId,
+        sourceChainId: Number(
+          req.body.sourceChainId
+        ),
+        provider: req.body.provider,
+        steps: req.body.steps,
+      });
+
+    res.json(result);
+  }
+);
 
 export const submitEvidence = asyncHandler(async (req: Request, res: Response) => {
   const { correlationId } = req.params;
@@ -81,6 +170,141 @@ export const submitEvidence = asyncHandler(async (req: Request, res: Response) =
     throw new AppError("INTERNAL_ERROR", message);
   }
 });
+
+
+
+export const recordEvidenceOutcome = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { correlationId } = req.params;
+    const { outcome, reason } = req.body;
+
+    if (
+      !correlationId ||
+      typeof correlationId !== "string"
+    ) {
+      throw new AppError(
+        "MISSING_FIELD",
+        "correlationId is required"
+      );
+    }
+
+    if (
+      outcome !== "cancelled-before-submission" &&
+      outcome !== "partially-executed"
+    ) {
+      throw new AppError(
+        "UNSUPPORTED_OPERATION",
+        "Unsupported evidence execution outcome"
+      );
+    }
+
+    try {
+      const result =
+        await recordEvidenceExecutionOutcome({
+          correlationId,
+          outcome,
+          reason:
+            typeof reason === "string"
+              ? reason
+              : undefined,
+        });
+
+      res.json(result);
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Evidence outcome reporting failed";
+
+      if (message.includes("not found")) {
+        throw new AppError(
+          "TRANSACTION_NOT_FOUND",
+          message
+        );
+      }
+
+      if (
+        message.includes("Cannot record") ||
+        message.includes(
+          "at least one but not all"
+        )
+      ) {
+        throw new AppError(
+          "UNSUPPORTED_OPERATION",
+          message
+        );
+      }
+
+      throw new AppError(
+        "INTERNAL_ERROR",
+        message
+      );
+    }
+  }
+);
+
+export const verifyEvidence = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { correlationId } = req.params;
+    const { stepIndex } = req.body;
+
+    if (
+      !correlationId ||
+      typeof correlationId !== "string"
+    ) {
+      throw new AppError(
+        "MISSING_FIELD",
+        "correlationId is required"
+      );
+    }
+
+    if (
+      !Number.isInteger(stepIndex) ||
+      stepIndex < 0
+    ) {
+      throw new AppError(
+        "MISSING_FIELD",
+        "stepIndex must be a non-negative integer"
+      );
+    }
+
+    try {
+      const result =
+        await verifyEvidenceStep({
+          correlationId,
+          stepIndex,
+        });
+
+      res.json(result);
+    } catch (err) {
+      if (err instanceof AppError) {
+        throw err;
+      }
+
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Evidence verification failed";
+
+      if (message.includes("not found")) {
+        throw new AppError(
+          "TRANSACTION_NOT_FOUND",
+          message
+        );
+      }
+
+      throw new AppError(
+        "INTERNAL_ERROR",
+        message
+      );
+    }
+  }
+);
+
 
 export const getEvidence = asyncHandler(
   async (req: Request, res: Response) => {

@@ -39,11 +39,47 @@ avaxLendingRoutes.post(
 );
 
 /**
+ * POST /avax/lending/evidence/:correlationId/submissions
+ * Records a submitted lending transaction and independently verifies
+ * its Avalanche receipt against the prepared evidence commitment.
+ *
+ * Body: { stepIndex, txHash, executionMechanism?, providerMetadata? }
+ */
+avaxLendingRoutes.post(
+  "/evidence/:correlationId/submissions",
+  ctrl.submitEvidence
+);
+
+/**
+ * POST /avax/lending/evidence/:correlationId/verifications
+ * Independently re-verifies the persisted submitted transaction.
+ *
+ * Body: { stepIndex }
+ *
+ * txHash is deliberately not accepted. Verification is bound to
+ * the immutable transaction hash already persisted for the step.
+ */
+avaxLendingRoutes.post(
+  "/evidence/:correlationId/outcomes",
+  validateRequired("outcome"),
+  executionTimeout(),
+  ctrl.recordEvidenceOutcome
+);
+
+avaxLendingRoutes.post(
+  "/evidence/:correlationId/verifications",
+  validateRequired("stepIndex"),
+  executionTimeout(),
+  ctrl.verifyEvidence
+);
+
+/**
  * POST /avax/lending/prepare-redeem
  * Prepares a TransactionBundle to redeem qTokens for underlying.
  * Steps: [approve qToken] + [redeem / redeemAVAX]
  *
- * Body: { userAddress, qTokenAddress, qTokenAmount }
+ * Body: { userAddress, qTokenAddress, amount }
+ * amount is the requested underlying amount in underlying base units.
  */
 avaxLendingRoutes.post(
   "/prepare-redeem",

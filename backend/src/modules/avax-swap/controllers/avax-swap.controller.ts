@@ -15,6 +15,9 @@ import {
 } from "../../../shared/services/transaction-evidence.service";
 import { AppError } from "../../../shared/errorCodes";
 import {
+  exportUserIdentityEvidenceAdmin,
+} from "../../../shared/services/user-identity-evidence.service";
+import {
   beginAvaxBridgeEvidence,
   beginAvaxBridgeDestinationEvidence,
   commitAvaxBridgeEvidence,
@@ -439,6 +442,49 @@ export const getEvidenceAdminStatus = asyncHandler(
     res.json({
       isAdmin: isPhase2EvidenceAdmin(verifiedAddress),
     });
+  }
+);
+
+
+export const exportUserEstateEvidenceAdmin = asyncHandler(
+  async (req: Request, res: Response) => {
+    const verifiedAddress =
+      (req as any).verifiedAddress as string;
+
+    if (!isPhase2EvidenceAdmin(verifiedAddress)) {
+      throw new AppError("PHASE2_ADMIN_FORBIDDEN");
+    }
+
+    try {
+      const evidenceExport =
+        await exportUserIdentityEvidenceAdmin();
+
+      res.setHeader(
+        "Content-Type",
+        "application/json"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="panoramablock-user-estate-evidence.json"`
+      );
+
+      res.json(evidenceExport);
+    } catch (err) {
+      if (err instanceof AppError) {
+        throw err;
+      }
+
+      const message =
+        err instanceof Error
+          ? err.message
+          : "User estate evidence export failed";
+
+      throw new AppError(
+        "INTERNAL_ERROR",
+        message
+      );
+    }
   }
 );
 

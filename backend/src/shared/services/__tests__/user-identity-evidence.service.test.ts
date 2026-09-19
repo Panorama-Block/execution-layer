@@ -377,4 +377,42 @@ describe("user identity evidence source disclosure minimisation", () => {
       );
     }
   });
+
+  it("uses panorama as the default tenant for user-estate export", async () => {
+    delete process.env.DB_GATEWAY_TENANT_ID;
+
+    const originalFetch = global.fetch;
+    const observedTenants: string[] = [];
+
+    global.fetch = vi.fn(async (_input, init) => {
+      const headers = new Headers(init?.headers);
+      observedTenants.push(headers.get("X-Tenant-Id") ?? "");
+
+      return new Response(
+        JSON.stringify({
+          data: [],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      await exportUserIdentityEvidenceAdmin();
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    expect(observedTenants).toHaveLength(3);
+    expect(observedTenants).toEqual([
+      "panorama",
+      "panorama",
+      "panorama",
+    ]);
+  });
+
 });

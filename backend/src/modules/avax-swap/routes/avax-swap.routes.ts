@@ -220,6 +220,19 @@ avaxSwapRoutes.get(
 );
 
 /**
+ * GET /avax/swap/evidence/admin/user-estate/export/:userAddress
+ * Returns an administrative evidence export of the PanoramaBlock user estate.
+ * Requires wallet signature authentication and Phase 2 admin allowlist membership.
+ */
+avaxSwapRoutes.get(
+  "/evidence/admin/user-estate/export/:userAddress",
+  validateAddress("userAddress", "params"),
+  requireWalletAuth,
+  executionTimeout(),
+  ctrl.exportUserEstateEvidenceAdmin
+);
+
+/**
  * GET /avax/swap/evidence/:correlationId
  * Returns the complete durable evidence chain from the DB.
  */

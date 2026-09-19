@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 
-const DEFAULT_TENANT_ID = "panorama-default";
+const DEFAULT_TENANT_ID = "panorama";
 const PAGE_SIZE = 1000;
 
 interface UserProfileRecord {
